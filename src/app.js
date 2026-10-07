@@ -93,9 +93,28 @@ $('#export-open').onclick=()=>{stop();$('#export-status').textContent='';$('#exp
 const breathe=()=>new Promise(r=>setTimeout(r,0));
 async function exportGif(p){const width=Number($('#gif-width').value),height=Math.round(width*p.height/p.width),fps=Number($('#gif-fps').value),count=Math.ceil(p.duration*fps);if(count>600||count*width*height>80000000)throw Error('GIF 超过资源上限，请缩短合成、降低宽度或帧率。');const off=document.createElement('canvas');off.width=width;off.height=height;const c=off.getContext('2d',{willReadFrequently:true}),encoder=new GifEncoder(width,height,fps);
  for(let i=0;i<count;i++){if(cancelExport)throw Error('已取消导出');drawProject(c,p,i/fps,{width,height});encoder.addFrame(c.getImageData(0,0,width,height).data);$('#export-progress').value=(i+1)/count;$('#export-status').textContent=`正在渲染 ${i+1} / ${count} 帧`;if(i%2===0)await breathe();}return encoder.finish();}
-async function exportWebm(p){const type=recorderType();if(!type)throw Error('此浏览器无法录制 WebM，请使用 GIF。');if(document.hidden)throw Error('请保持此页面在前台后重试。');const off=document.createElement('canvas');off.width=p.width;off.height=p.height;const c=off.getContext('2d');drawProject(c,p,0);const stream=off.captureStream(p.fps);const recorder=new MediaRecorder(stream,{mimeType:type,videoBitsPerSecond:Math.min(16000000,p.width*p.height*p.fps*.18)});const chunks=[];let error=null;
- const result=new Promise((resolve,reject)=>{recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};recorder.onerror=e=>{error=e.error??Error('视频录制失败');};recorder.onstop=()=>{stream.getTracks().forEach(t=>t.stop());if(error)reject(error);else resolve(new Blob(chunks,{type:'video/webm'}));};});recorder.start(100);const start=performance.now();
- await new Promise(resolve=>{function frame(now){const elapsed=(now-start)/1000;if(cancelExport||document.hidden){error=Error(cancelExport?'已取消导出':'页面移到后台，录制已停止。请保持前台后重试。');recorder.stop();resolve();return;}drawProject(c,p,Math.min(elapsed,p.duration-1/p.fps));$('#export-progress').value=Math.min(1,elapsed/p.duration);$('#export-status').textContent=`正在录制 ${Math.min(elapsed,p.duration).toFixed(1)} / ${p.duration} 秒`;if(elapsed>=p.duration){recorder.stop();resolve();}else requestAnimationFrame(frame);}requestAnimationFrame(frame);});return result;}
+async function exportWebm(p){
+ const type=recorderType();if(!type)throw Error('此浏览器无法录制 WebM，请使用 GIF。');if(document.hidden)throw Error('请保持此页面在前台后重试。');
+ const off=document.createElement('canvas');off.width=p.width;off.height=p.height;const c=off.getContext('2d');drawProject(c,p,0);const stream=off.captureStream(p.fps);let recorder;
+ try{recorder=new MediaRecorder(stream,{mimeType:type,videoBitsPerSecond:Math.min(16000000,p.width*p.height*p.fps*.18)});}catch(err){stream.getTracks().forEach(t=>t.stop());throw err;}
+ return new Promise((resolve,reject)=>{
+  const chunks=[];let error=null,raf=0,finished=false;
+  const stopRecording=reason=>{if(finished)return;if(reason)error=Error(reason);if(recorder.state!=='inactive')recorder.stop();};
+  const visibility=()=>{if(document.hidden)stopRecording('页面移到后台，录制已停止。请保持前台后重试。');};
+  const watchdog=setInterval(()=>{if(cancelExport)stopRecording('已取消导出');},100);
+  const cleanup=()=>{finished=true;cancelAnimationFrame(raf);clearInterval(watchdog);document.removeEventListener('visibilitychange',visibility);stream.getTracks().forEach(t=>t.stop());};
+  recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
+  recorder.onerror=e=>{error=e.error??Error('视频录制失败');if(recorder.state!=='inactive')recorder.stop();else{cleanup();reject(error);}};
+  recorder.onstop=()=>{cleanup();if(error)reject(error);else resolve(new Blob(chunks,{type:'video/webm'}));};
+  document.addEventListener('visibilitychange',visibility);
+  try{recorder.start(100);}catch(err){cleanup();reject(err);return;}
+  const start=performance.now();
+  function frame(now){if(finished||recorder.state==='inactive')return;const elapsed=(now-start)/1000;if(cancelExport){stopRecording('已取消导出');return;}
+   drawProject(c,p,Math.min(elapsed,p.duration-1/p.fps));$('#export-progress').value=Math.min(1,elapsed/p.duration);$('#export-status').textContent=`正在录制 ${Math.min(elapsed,p.duration).toFixed(1)} / ${p.duration} 秒`;
+   if(elapsed>=p.duration)stopRecording();else raf=requestAnimationFrame(frame);
+  }raf=requestAnimationFrame(frame);
+ });
+}
 $('#export-start').onclick=async()=>{if(exporting)return;const p=clone(project),format=$('#export-format').value;exporting=true;cancelExport=false;$('#export-start').disabled=true;$('#export-format').disabled=true;$('#export-cancel').hidden=false;$('#export-progress').hidden=false;$('#export-progress').value=0;try{await loadImages(p);let blob;if(format==='png'){const off=document.createElement('canvas');off.width=p.width;off.height=p.height;drawProject(off.getContext('2d'),p,time);blob=await new Promise((resolve,reject)=>off.toBlob(b=>b?resolve(b):reject(Error('PNG 导出失败')),'image/png'));}else blob=format==='gif'?await exportGif(p):await exportWebm(p);if(cancelExport)throw Error('已取消导出');download(blob,`${filename()}.${format}`);$('#export-progress').value=1;$('#export-status').textContent=`导出完成 · ${(blob.size/1024/1024).toFixed(2)} MB · 请检查下载文件`;}catch(err){$('#export-status').textContent=err.message;}finally{exporting=false;$('#export-format').disabled=false;$('#export-cancel').hidden=true;updateExportNote();}};
 window.addEventListener('keydown',e=>{if($('dialog[open]')||exporting||/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)||e.target.isContentEditable)return;const mod=e.metaKey||e.ctrlKey;const key=e.key.toLowerCase();if(mod&&['s','o','z','y','d'].includes(key)){e.preventDefault();if(key==='s')saveProject();if(key==='o')$('#project-file').click();if(key==='z')$(e.shiftKey?'#redo':'#undo').click();if(key==='y')$('#redo').click();if(key==='d')duplicateLayer();return;}if(e.code==='Space'){e.preventDefault();togglePlay();}if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();stop();setTime(time+(e.key==='ArrowLeft'?-1:1)*(e.shiftKey?10:1)/project.fps);}if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();deleteSelection();}});
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
