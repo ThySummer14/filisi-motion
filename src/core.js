@@ -1,5 +1,5 @@
-import {isMediaLayer,validateMediaLayer} from './media-core.js?v=0.4.0';
-import {bezierProgress, validateCurve, DEFAULT_CURVE} from './curve.js?v=0.4.0';
+import {isMediaLayer,validateMediaLayer} from './media-core.js?v=0.4.1';
+import {bezierProgress, validateCurve, DEFAULT_CURVE} from './curve.js?v=0.4.1';
 // Original Filisi Motion project model and deterministic keyframe evaluation.
 export const VERSION = 3;
 export const PROPERTIES = ['x','y','scale','rotation','opacity','blur'];

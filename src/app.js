@@ -1,13 +1,13 @@
-import {exportOfflineAudio} from './audio-export.js?v=0.4.0';
-import {timelineTicks,timelineScrollForTime} from './timeline-view.js?v=0.4.0';
-import {AssetStore,MAX_TOTAL_BYTES} from './assets.js?v=0.4.0';
-import {MediaRuntime,hasMedia} from './media.js?v=0.4.0';
-import {isMediaLayer,sourceTimeAt,trimClip,moveClip,splitClip,detachAudio} from './media-core.js?v=0.4.0';
-import {recorderType,exportStill,exportGifFrames,exportRealtime} from './export.js?v=0.4.0';
-import {createGraphEditor} from './graph.js?v=0.4.0';
-import {DEFAULT_CURVE} from './curve.js?v=0.4.0';
-import {PROPERTIES, EASINGS, clone, clamp, uid, makeLayer, blankProject, sampleProject, validateProject, setKey, valueAt, evaluated, History} from './core.js?v=0.4.0';
-import {drawProject,loadImages,hitTest,images} from './render.js?v=0.4.0';
+import {exportOfflineAudio} from './audio-export.js?v=0.4.1';
+import {timelineTicks,timelineScrollForTime} from './timeline-view.js?v=0.4.1';
+import {AssetStore,MAX_TOTAL_BYTES} from './assets.js?v=0.4.1';
+import {MediaRuntime,hasMedia} from './media.js?v=0.4.1';
+import {isMediaLayer,sourceTimeAt,trimClip,moveClip,splitClip,detachAudio} from './media-core.js?v=0.4.1';
+import {recorderType,exportStill,exportGifFrames,exportRealtime} from './export.js?v=0.4.1';
+import {createGraphEditor} from './graph.js?v=0.4.1';
+import {DEFAULT_CURVE} from './curve.js?v=0.4.1';
+import {PROPERTIES, EASINGS, clone, clamp, uid, makeLayer, blankProject, sampleProject, validateProject, setKey, valueAt, evaluated, History} from './core.js?v=0.4.1';
+import {drawProject,loadImages,hitTest,images} from './render.js?v=0.4.1';
 import {GifEncoder} from './gif.js';
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -15,14 +15,14 @@ const labels={x:'位置 X',y:'位置 Y',scale:'缩放',rotation:'旋转',opacity
 const icons={text:'T',rect:'▢',ellipse:'◯',image:'▧',video:'▶',audio:'♫'};
 const easeLabels={linear:'线性',easeIn:'缓入',easeOut:'缓出',easeInOut:'缓入缓出',hold:'保持',bezier:'自定义贝塞尔'};
 const ranges={x:[-20000,20000,1],y:[-20000,20000,1],scale:[.01,20,.01],rotation:[-36000,36000,1],opacity:[0,1,.01],blur:[0,100,1]};
-const history=new History();let project=sampleProject(),selected=null,time=1.7,playing=false,loop=true,autoKey=false,selectedKey=null,zoom=1,followPlayhead=true,exporting=false,cancelExport=false,dirty=false,storageTimer,toastTimer,lastTick=0,playTicket=0,seekTicket=0,buffering=false,saving=false,importing=false,revision=0,projectLoadTicket=0;
+const history=new History();let project=sampleProject(),selected=null,time=1.7,playing=false,loop=true,autoKey=false,selectedKey=null,zoom=1,followPlayhead=true,exporting=false,cancelExport=false,dirty=false,storageTimer,toastTimer,lastTick=0,playTicket=0,seekTicket=0,buffering=false,saving=false,importing=false,revision=0,projectLoadTicket=0,projectLoading=false;
 const canvas=$('#canvas'),ctx=canvas.getContext('2d');const STORAGE='filisi-motion-autosave-v3';
 try{const saved=localStorage.getItem(STORAGE)??localStorage.getItem('filisi-motion-autosave-v2')??localStorage.getItem('filisi-motion-autosave-v1');if(saved){project=validateProject(JSON.parse(saved));time=0;}}catch{toast('未能恢复自动存档，已载入示例。');}
 selected=project.layers.find(l=>l.type==='text')?.id??project.layers.at(-1)?.id??null;
 const assetStore=new AssetStore();
 const previewMedia=new MediaRuntime(assetStore,{onError:error=>{stop();toast(error.message);}});
 const layer=()=>project.layers.find(l=>l.id===selected);
-function mediaStatus(text){const status=$('#media-status');status.textContent=text;const stats=previewMedia.stats();status.title=`解码缓存 ${stats.decoders} / ${stats.total} 个片段 · 最近定位 ${stats.lastSeekMs} ms`;status.dataset.decoders=stats.decoders;status.dataset.total=stats.total;status.dataset.seekMs=stats.lastSeekMs;const heap=performance.memory?.usedJSHeapSize;status.dataset.jsHeapBytes=Number.isFinite(heap)?heap:'';if(Number.isFinite(heap))status.title+=` · JS 堆约 ${(heap/1048576).toFixed(1)} MB（不含原生解码器）`;}
+function mediaStatus(text){const status=$('#media-status');status.textContent=text;const stats=previewMedia.stats();status.title=`解码缓存 ${stats.decoders} / ${stats.total} 个片段 · 最近定位 ${stats.lastSeekMs} ms`;status.dataset.decoders=stats.decoders;status.dataset.total=stats.total;status.dataset.seekMs=stats.lastSeekMs;const cachedBytes=assetStore.retainedAssets().reduce((n,a)=>n+a.size,0);status.dataset.cachedBytes=cachedBytes;status.title+=` · 素材缓存 ${(cachedBytes/1048576).toFixed(1)} MB`;const heap=performance.memory?.usedJSHeapSize;status.dataset.jsHeapBytes=Number.isFinite(heap)?heap:'';if(Number.isFinite(heap))status.title+=` · JS 堆约 ${(heap/1048576).toFixed(1)} MB（不含原生解码器）`;}
 async function seekMedia(){const ticket=++seekTicket;if(!hasMedia(project)){previewMedia.stop();mediaStatus('');return;}
  mediaStatus('媒体定位中…');try{await previewMedia.seek(project,time);if(ticket!==seekTicket||playing||exporting)return;mediaStatus('媒体已就绪');renderCanvas();}catch(error){if(error.name!=='AbortError'&&ticket===seekTicket){mediaStatus(error.message);toast(error.message);}}
 }
@@ -101,11 +101,11 @@ function addLayer(type){stop();if(project.layers.length>=100){toast('预览版�
 function duplicateLayer(){const l=layer();if(!l)return;if(project.layers.length>=100){toast('已达到 100 个图层上限。');return;}if(isMediaLayer(l)&&project.layers.filter(isMediaLayer).length>=32){toast('已达到 32 个媒体片段上限。');return;}checkpoint();const copy=clone(l);copy.id=uid();copy.name+=' 副本';copy.locked=false;if(!isMediaLayer(l)){copy.x+=20;copy.y+=20;for(const p of ['x','y'])for(const k of copy.keys[p]??[])k.value+=20;}project.layers.splice(project.layers.indexOf(l)+1,0,copy);selected=copy.id;selectedKey=null;changed();}
 function deleteSelection(){const l=layer();if(!l||l.locked)return;checkpoint();if(selectedKey?.layer===l.id){const p=selectedKey.property;const current=valueAt(l,p,time);l.keys[p]=l.keys[p].filter(k=>k.time!==selectedKey.time);if(!l.keys[p].length)l[p]=current;selectedKey=null;}else{project.layers=project.layers.filter(v=>v.id!==l.id);selected=project.layers.at(-1)?.id??null;}changed();}
 function reorder(delta){mutateLayer(l=>{const i=project.layers.indexOf(l),j=clamp(i+delta,0,project.layers.length-1);project.layers.splice(i,1);project.layers.splice(j,0,l);});}
-function projectOpenBusy(busy){$('#open-project').textContent=busy?'读取中…':'打开';$('#open-project').setAttribute('aria-busy',String(busy));}
+function projectOpenBusy(busy){projectLoading=busy;$('#open-project').textContent=busy?'读取中…':'打开';$('#open-project').setAttribute('aria-busy',String(busy));}
 async function replaceProject(next,request=++projectLoadTicket){if(request!==projectLoadTicket)return false;stop();const originalRevision=revision;projectOpenBusy(true);mediaStatus('正在读取工程素材…');
  try{await assetStore.ingest(next);if(request!==projectLoadTicket)return false;await loadImages(next);if(request!==projectLoadTicket)return false;await previewMedia.prepare(next,0);if(request!==projectLoadTicket)return false;if(revision!==originalRevision)throw Error('读取期间画布已改动，请重新打开工程');
- checkpoint();project=next;time=0;selected=project.layers.at(-1)?.id??null;selectedKey=null;images.forEach((_,src)=>{if(!project.layers.some(l=>l.src===src))images.delete(src);});changed();return true;
- }catch(error){if(request!==projectLoadTicket)return false;await seekMedia();toast(`工程未替换：${error.message}`);return false;}finally{if(request===projectLoadTicket)projectOpenBusy(false);}}
+ checkpoint();project=next;assetStore.releaseUnused(project);time=0;selected=project.layers.at(-1)?.id??null;selectedKey=null;images.forEach((_,src)=>{if(!project.layers.some(l=>l.src===src))images.delete(src);});changed();return true;
+ }catch(error){if(request!==projectLoadTicket)return false;await seekMedia();assetStore.releaseUnused(project);toast(`工程未替换：${error.message}`);return false;}finally{if(request===projectLoadTicket)projectOpenBusy(false);}}
 
 function download(blob,filename){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
 const filename=()=>project.name.replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').slice(0,100)||'filisi-motion';
@@ -130,11 +130,11 @@ function updateExportNote(){
   webm:recorderType()?`按 ${project.width} × ${project.height}、${project.fps} FPS 实时录制，约需 ${project.duration} 秒。${hasMedia(project)?'包含视频原声及音频层混音。':'没有音频素材时输出无音轨。'}请保持前台。帧率为尽力录制，可能丢帧、缓冲或有小幅音画/时长误差；不属于逐帧确定性编码。`:'此浏览器不支持 WebM 录制，请使用桌面 Chrome / Edge，或改用 GIF / PNG。',
   gif:'离线逐次定位并渲染。固定 256 色，不含音频；视频源的实际取帧精度由浏览器解码器决定。最多 600 帧、8000 万像素。',
   png:'导出当前时刻 PNG，无选框。视频源会先等待定位完成。',
-  wav:offlineSupported?'实验性离线音频：48 kHz / 16-bit 立体声 WAV，按样本时间线混音，不含画面。会解码完整源文件；未知声道压缩素材按 32 声道保守估算，超过 384 MiB 预算会拒绝。长视频请先提供 WAV 音轨。取消须等待当前解码或混音步骤结束。无自动限幅，请留音量余量。':'此浏览器不支持离线 Web Audio。'
+  wav:offlineSupported?'实验性离线音频：48 kHz / 16-bit 立体声 WAV，按样本时间线混音，不含画面。会解码完整源文件；已识别的 PCM WAV / MP4 AAC-LC 按文件头校验声道预算，未知格式按 32 声道保守估算。阶段峰值超过 384 MiB 会拒绝；不支持的长音轨可先提供 WAV。取消须等待当前解码或混音步骤结束。无自动限幅，请留音量余量。':'此浏览器不支持离线 Web Audio。'
  };$('#export-note').textContent=notes[format];$('#export-start').disabled=(format==='webm'&&!recorderType())||(format==='wav'&&!offlineSupported);
 }
-$('#export-open').onclick=()=>{stop();$('#export-status').textContent='';$('#export-progress').hidden=true;updateExportNote();$('#export-dialog').showModal();};$('#export-format').onchange=updateExportNote;$('#export-cancel').onclick=()=>{cancelExport=true;$('#export-status').textContent='正在取消，等待当前步骤结束…';};$('#export-dialog').addEventListener('cancel',e=>{if(exporting){e.preventDefault();cancelExport=true;}});$('#export-dialog').querySelector('form').addEventListener('submit',e=>{if(exporting){e.preventDefault();cancelExport=true;}});
-$('#export-start').onclick=async()=>{if(exporting)return;stop();const p=clone(project),format=$('#export-format').value;exporting=true;cancelExport=false;$('#export-start').disabled=true;$('#export-format').disabled=true;$('#export-cancel').hidden=false;$('#export-progress').hidden=false;$('#export-progress').value=0;$('#export-status').textContent='准备素材…';
+$('#export-open').onclick=()=>{if(projectLoading||importing){toast('正在读取工程或素材，请稍后导出。');return;}stop();$('#export-status').textContent='';$('#export-progress').hidden=true;updateExportNote();$('#export-dialog').showModal();};$('#export-format').onchange=updateExportNote;$('#export-cancel').onclick=()=>{cancelExport=true;$('#export-status').textContent='正在取消，等待当前步骤结束…';};$('#export-dialog').addEventListener('cancel',e=>{if(exporting){e.preventDefault();cancelExport=true;}});$('#export-dialog').querySelector('form').addEventListener('submit',e=>{if(exporting){e.preventDefault();cancelExport=true;}});
+$('#export-start').onclick=async()=>{if(exporting||projectLoading||importing)return;stop();const p=clone(project),format=$('#export-format').value;exporting=true;cancelExport=false;$('#export-start').disabled=true;$('#export-format').disabled=true;$('#export-cancel').hidden=false;$('#export-progress').hidden=false;$('#export-progress').value=0;$('#export-status').textContent='准备素材…';
  const runtime=hasMedia(p)&&format!=='wav'?new MediaRuntime(assetStore,{onError:error=>{cancelExport=true;$('#export-status').textContent=error.message;}}):null;
  try{const audioReady=runtime&&format==='webm'?runtime.resumeAudio():Promise.resolve();if(format!=='wav')await loadImages(p);await audioReady;if(runtime)await runtime.prepare(p);if(cancelExport)throw Error('已取消导出');
  const options={media:runtime,cancelled:()=>cancelExport,progress:(value,text)=>{$('#export-progress').value=value;$('#export-status').textContent=cancelExport?'正在取消，等待当前步骤结束…':text;}};

@@ -75,6 +75,7 @@ function mocks(options = {}) {
     return {blob: new Blob([new Uint8Array([1])]), meta: {duration: .1}, url: 'unused'};
   }};
   const run = createOfflineAudioExporter({AudioContext: Decoder, OfflineAudioContext: Offline,
+    ...(options.probeAudioMetadata ? {probeAudioMetadata: options.probeAudioMetadata} : {}),
     yieldControl: async () => { state.yields++; await options.yieldControl?.(state.yields); }});
   return {state, store, run};
 }
@@ -168,18 +169,49 @@ test('WAV rejects invalid channels and RIFF overflow before allocation', () => {
   assert.equal(encodePcm16Wav([new Float32Array()]).byteLength, 44);
 });
 
-test('memory estimate includes retained encodings, read copies, PCM per clip, output copies and headroom', () => {
+test('memory estimate uses conservative decode/render/encode peaks and retains PCM carryover after release', () => {
   const base = estimateAudioMemory({frames: 4800});
   assert.equal(base.estimatedBytes, 4800 * 24 + 88 + 16 * 1024 * 1024);
   const estimate = estimateAudioMemory({frames: 4800, encodedBytes: 1000, maxEncodedBytes: 600,
     sources: [{frames: 4800, channels: 2, uses: 3}], pendingPcmBytes: 512});
   assert.equal(estimate.encodedCopiesBytes, 2200);
   assert.equal(estimate.decodedBytes, 4800 * 2 * 4 * 4);
-  assert.equal(estimate.estimatedBytes, base.estimatedBytes + 2200 + estimate.decodedBytes + 1024);
+  assert.equal(estimate.decodedPcmBytes, 4800 * 2 * 4);
+  assert.equal(estimate.sourceCarryoverBytes, estimate.decodedBytes);
+  assert.equal(estimate.phases.decode, 2200 + estimate.decodedPcmBytes * 2 + 1024 + estimate.headroomBytes);
+  assert.equal(estimate.phases.render, 1000 + estimate.decodedBytes + 4800 * 16 + estimate.headroomBytes);
+  assert.equal(estimate.phases.encode, base.estimatedBytes + 1000 + estimate.decodedBytes);
+  assert.equal(estimate.estimatedBytes, Math.max(...Object.values(estimate.phases)));
+  assert.equal(estimate.peakStage, 'encode');
   assert.equal(estimate.limitBytes, 384 * 1024 * 1024);
   assert.equal(estimate.fits, true);
   assert.equal(estimateAudioMemory({frames: 4800, pendingPcmBytes: MAX_AUDIO_MEMORY_BYTES}).fits, false);
   assert.throws(() => estimateAudioMemory({frames: 4800, sources: [{frames: 1, channels: 33, uses: 1}]}));
+});
+
+test('169-second stereo PCM WAV fits all phase peaks without assuming native PCM collection', () => {
+  const frames = 169 * rate, encodedBytes = wavLayout(frames).totalBytes, pcmBytes = frames * 2 * 4;
+  const estimate = estimateAudioMemory({frames, encodedBytes, maxEncodedBytes: encodedBytes,
+    sources: [{frames, channels: 2, uses: 1}]});
+  assert.equal(estimate.phases.decode, 3 * encodedBytes + 2 * pcmBytes + estimate.headroomBytes);
+  assert.equal(estimate.phases.render, encodedBytes + 4 * pcmBytes + estimate.headroomBytes);
+  assert.equal(estimate.phases.encode, 3 * encodedBytes + 4 * pcmBytes + estimate.headroomBytes);
+  assert.equal(estimate.sourceCarryoverBytes, 2 * pcmBytes);
+  assert.equal(estimate.fits, true); assert.equal(estimate.peakStage, 'encode');
+  assert.equal(Math.ceil(estimate.estimatedBytes / 1048576), 357);
+  assert.ok(estimate.estimatedBytes + 2 * encodedBytes > MAX_AUDIO_MEMORY_BYTES, 'the old simultaneous-allocation estimate rejected this case');
+  const predecode = estimateAudioMemory({frames, encodedBytes, maxEncodedBytes: encodedBytes,
+    pendingPcmBytes: sampleAtOrAfter(169.3) * 2 * 4});
+  assert.equal(predecode.fits, true);
+  const unknown = estimateAudioMemory({frames, encodedBytes, maxEncodedBytes: encodedBytes,
+    pendingPcmBytes: sampleAtOrAfter(169.3) * 32 * 4});
+  assert.equal(unknown.fits, false); assert.equal(unknown.peakStage, 'decode');
+  const cachedVideo = extra => estimateAudioMemory({frames, encodedBytes: encodedBytes + extra, maxEncodedBytes: encodedBytes,
+    sources: [{frames, channels: 2, uses: 1}]});
+  assert.equal(cachedVideo(20 * 1048576).fits, true);
+  assert.equal(cachedVideo(28 * 1048576).fits, false, 'still-cached muted video is not free');
+  assert.equal(estimateAudioMemory({frames, encodedBytes, maxEncodedBytes: encodedBytes,
+    sources: [{frames, channels: 2, uses: 16}]}).fits, false, 'multiple acquired-source copies remain charged');
 });
 
 test('bounded WAV probe extracts ordinary PCM dimensions, handles odd chunks, rejects malformed headers', () => {
@@ -250,9 +282,41 @@ test('unknown long source is rejected before decode with demand, limit and reaso
   const {state, store, run} = mocks({get: () => ({blob, meta: {duration: 169}})});
   await assert.rejects(run(project([clip({mediaDuration: 169})]), {assetStore: store}), error => {
     assert.equal(error.code, 'AUDIO_MEMORY_LIMIT'); assert.match(error.message, /\d+ MiB/);
-    assert.match(error.message, /384 MiB/); assert.match(error.message, /32 声道/); assert.match(error.message, /整段/); return true;
+    assert.match(error.message, /384 MiB/); assert.match(error.message, /32 声道/); assert.match(error.message, /整段素材解码阶段/); return true;
   });
   assert.equal(state.opened, 0); assert.equal(fullReads, 0);
+});
+
+test('full 169-second known-stereo export releases sources before readback and emits 8,112,000 WAV frames', async () => {
+  const frames = 169 * rate, layout = wavLayout(frames);
+  // Synthetic dimension-only encoded source: no private media, no large input file.
+  const header = encodePcm16Wav([new Float32Array(1), new Float32Array(1)]).slice(0, 44);
+  const headerView = new DataView(header);
+  headerView.setUint32(4, layout.totalBytes - 8, true); headerView.setUint32(40, layout.dataBytes, true);
+  const blob = {size: layout.totalBytes, slice: () => new Blob([header]), arrayBuffer: async () => header.slice(0)};
+  let runtime, readbacks = 0;
+  const source = {length: frames, numberOfChannels: 2, sampleRate: rate};
+  runtime = mocks({get: () => ({blob, meta: {duration: 169}}), decode: () => source,
+    render: () => ({length: frames, numberOfChannels: 2, sampleRate: rate, getChannelData() {
+      assertReleased(runtime.state); readbacks++; return new Float32Array(frames);
+    }})});
+  const p = project([clip({end: 169, mediaDuration: 169})], 169);
+  p.assets = [{id: 'asset-a', size: layout.totalBytes}, {id: 'muted-video', size: 20 * 1048576}];
+  const result = await runtime.run(p, {assetStore: runtime.store});
+  assert.equal(result.size, 32448044); assert.equal(readbacks, 2);
+  assert.equal(runtime.state.decoded, 1); assert.deepEqual(runtime.state.reads, ['asset-a']);
+  assert.equal(runtime.state.offline[0].frames, 8112000);
+  const outputHeader = new DataView(await result.slice(0, 44).arrayBuffer());
+  assert.equal(outputHeader.getUint32(40, true), 8112000 * 4);
+  assertReleased(runtime.state);
+});
+
+test('current-project cached assets are budgeted even if muted or not read by this export', async () => {
+  const {state, run} = mocks();
+  const p = project([], 300);
+  p.assets = [{id: 'cached-video', size: 64 * 1048576}];
+  await assert.rejects(run(p), error => error.code === 'AUDIO_MEMORY_LIMIT' && /WAV 编码阶段/.test(error.message));
+  assert.deepEqual(state.reads, []); assert.equal(state.offline.length, 0);
 });
 
 test('known WAV header uses real channel count while unsupported codecs are never silently skipped', async () => {
@@ -315,10 +379,20 @@ test('cancellation during render waits for completion and disconnects every sche
 
 test('chunked WAV encoding observes cancellation, releases nodes, and emits no success', async () => {
   let cancelled = false;
-  const {state, store, run} = mocks({yieldControl: count => { if (count === 2) cancelled = true; }});
+  const {state, store, run} = mocks({yieldControl: count => { if (count === 2) { assertReleased(state); cancelled = true; } }});
   const values = [];
   await assert.rejects(run(project(), {assetStore: store, cancelled: () => cancelled, progress: value => values.push(value)}), {name: 'AbortError'});
   assertReleased(state); assert.ok(!values.includes(1));
+});
+
+test('cancelling immediately after graph release prevents both channel readback and WAV allocation', async () => {
+  let cancelled = false, readbacks = 0;
+  const {state, store, run} = mocks({render: () => ({length: 4800, numberOfChannels: 2, sampleRate: rate,
+    getChannelData() { readbacks++; throw Error('Readback must not occur after cancellation'); }})});
+  await assert.rejects(run(project(), {assetStore: store, cancelled: () => cancelled, progress: value => {
+    if (value === .78) { assertReleased(state); cancelled = true; }
+  }}), {name: 'AbortError'});
+  assert.equal(readbacks, 0); assertReleased(state);
 });
 
 test('decode, render, progress, and wrong-rate failures clean up and allow another export', async () => {
@@ -345,4 +419,14 @@ test('API capability and callback validation fail before reading private assets'
   await assert.rejects(run(project(), {assetStore: {get() { reads++; }}}), {code: 'AUDIO_UNSUPPORTED'});
   await assert.rejects(run(project(), {cancelled: true}), TypeError);
   assert.equal(reads, 0);
+});
+
+test('recognized AAC budget uses bounded probe reservation and rejects decoder disagreement',async()=>{
+ const probeAudioMetadata=async()=>({channels:2,maxChannels:2,sampleRate:48000,codec:'mp4a.40.2'});
+ const ok=mocks({probeAudioMetadata,decode:()=>buffer(4800,2)});await ok.run(project(),{assetStore:ok.store});assert.equal(ok.state.decoded,1);assertReleased(ok.state);
+ const bad=mocks({probeAudioMetadata,decode:()=>buffer(4800,6)});await assert.rejects(bad.run(project(),{assetStore:bad.store}),e=>e.code==='AUDIO_METADATA'&&/声道/.test(e.message));assertReleased(bad.state);
+});
+test('retained non-project assets remain in the offline budget rather than disappearing',async()=>{
+ const runtime=mocks();runtime.store.retainedAssets=()=>[{id:'older-unsaved',size:MAX_AUDIO_MEMORY_BYTES}];
+ await assert.rejects(runtime.run(project(),{assetStore:runtime.store}),e=>e.code==='AUDIO_MEMORY_LIMIT');assert.equal(runtime.state.opened,0);assert.equal(runtime.state.reads.length,0);
 });

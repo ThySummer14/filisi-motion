@@ -1,5 +1,6 @@
+import {probeMp4Audio} from './audio-probe.js?v=0.4.1';
 // Original MIT-licensed, dependency-free offline audio mix and PCM16 WAV writer.
-import {isMediaLayer, validateMediaLayer} from './media-core.js?v=0.4.0';
+import {isMediaLayer, validateMediaLayer} from './media-core.js?v=0.4.1';
 
 export const AUDIO_SAMPLE_RATE = 48000;
 export const AUDIO_CHANNELS = 2;
@@ -41,6 +42,15 @@ export function projectAudioFrames(duration) {
 export function planOfflineAudio(project) {
   const frames = projectAudioFrames(project?.duration);
   if (!Array.isArray(project.layers) || project.layers.length > 100) throw new RangeError('最多支持 100 个图层');
+  const assets = project.assets ?? [], assetSizes = new Map();
+  if (!Array.isArray(assets) || assets.length > 32) throw new RangeError('最多支持 32 个媒体素材');
+  let assetBytes = 0;
+  for (const asset of assets) {
+    if (typeof asset?.id !== 'string' || !asset.id || assetSizes.has(asset.id)) throw new TypeError('无效或重复的素材 ID');
+    integer(asset.size, 1, MAX_ASSET_BYTES, 'asset.size');
+    assetSizes.set(asset.id, asset.size); assetBytes += asset.size;
+  }
+  if (assetBytes > MAX_TOTAL_ASSET_BYTES) throw fail('AUDIO_ASSET', '工程媒体总量超过 128 MiB 上限');
   const media = project.layers.filter(isMediaLayer);
   if (media.length > 32) throw new RangeError('最多支持 32 个媒体片段');
   const clips = [];
@@ -52,7 +62,7 @@ export function planOfflineAudio(project) {
     clips.push({id, type, assetId, start, end, sourceIn, mediaDuration, volume, muted, visible, fadeIn, fadeOut,
       ...(fadeOrigin ? {fadeOrigin: {...fadeOrigin}} : {})});
   }
-  return {frames, duration: project.duration, clips};
+  return {frames, duration: project.duration, clips, assetSizes: [...assetSizes], assetBytes};
 }
 
 function linearEvents(start, end, knots, valueAt) {
@@ -134,32 +144,46 @@ export function encodePcm16Wav(channels, sampleRate = AUDIO_SAMPLE_RATE) {
   return buffer;
 }
 
-/** Conservative export working-set estimate, not a native browser RSS cap.
- * Account for each encoded Blob + two read/decoder copies; decoded PCM plus a
- * potential acquired copy per scheduled source; render/readback and WAV/Blob
- * copies; and 16 MiB graph, header, and allocator headroom. pendingPcmBytes is a
- * pre-decode reservation (two PCM copies) until actual dimensions are known. */
+/** Conservative phase peaks, not a browser RSS cap. Decode owns read/decoder
+ * copies, and finishes/its AudioContext closes before rendering. Encode still
+ * reserves ALL source PCM/acquired copies after explicit graph release: it does
+ * not assume immediate collection of native PCM. Encoded Blobs stay counted in
+ * every phase. pendingPcmBytes reserves two copies of the next whole-source
+ * decode; an unknown channel count still uses 32. */
 export function estimateAudioMemory({frames, encodedBytes = 0, maxEncodedBytes = 0, sources = [], pendingPcmBytes = 0}) {
   const output = wavLayout(frames);
   for (const [name, value] of Object.entries({encodedBytes, maxEncodedBytes, pendingPcmBytes})) integer(value, 0, Number.MAX_SAFE_INTEGER, name);
-  let decodedBytes = 0;
+  let decodedBytes = 0, decodedPcmBytes = 0;
   for (const source of sources) {
     integer(source.frames, 1, Number.MAX_SAFE_INTEGER, 'source.frames');
     integer(source.channels, 1, MAX_SOURCE_CHANNELS, 'source.channels');
     integer(source.uses, 1, 32, 'source.uses');
-    decodedBytes += source.frames * source.channels * 4 * (1 + source.uses);
+    const pcmBytes = source.frames * source.channels * 4;
+    decodedPcmBytes += pcmBytes;
+    decodedBytes += pcmBytes * (1 + source.uses);
   }
   const encodedCopiesBytes = encodedBytes + maxEncodedBytes * 2;
-  const outputCopiesBytes = frames * AUDIO_CHANNELS * 4 * 2 + output.totalBytes * 2;
-  const estimatedBytes = encodedCopiesBytes + decodedBytes + pendingPcmBytes * 2 + outputCopiesBytes + HEADROOM_BYTES;
+  const renderCopiesBytes = frames * AUDIO_CHANNELS * 4 * 2;
+  const wavCopiesBytes = output.totalBytes * 2;
+  const outputCopiesBytes = renderCopiesBytes + wavCopiesBytes;
+  const phases = {
+    decode: encodedCopiesBytes + decodedPcmBytes * 2 + pendingPcmBytes * 2 + HEADROOM_BYTES,
+    render: encodedBytes + decodedBytes + renderCopiesBytes + HEADROOM_BYTES,
+    // No GC credit: reserve source buffers even after releasing their references.
+    encode: encodedBytes + decodedBytes + renderCopiesBytes + wavCopiesBytes + HEADROOM_BYTES,
+  };
+  const peakStage = Object.keys(phases).reduce((peak, stage) => phases[stage] > phases[peak] ? stage : peak, 'decode');
+  const estimatedBytes = phases[peakStage];
   if (!Number.isSafeInteger(estimatedBytes)) throw new RangeError('Unsafe memory estimate');
-  return {estimatedBytes, encodedCopiesBytes, decodedBytes, outputCopiesBytes, headroomBytes: HEADROOM_BYTES,
+  return {estimatedBytes, peakStage, phases, encodedCopiesBytes, decodedPcmBytes, decodedBytes, sourceCarryoverBytes: decodedBytes,
+    renderCopiesBytes, wavCopiesBytes, outputCopiesBytes, headroomBytes: HEADROOM_BYTES,
     limitBytes: MAX_AUDIO_MEMORY_BYTES, fits: estimatedBytes <= MAX_AUDIO_MEMORY_BYTES};
 }
 
 function requireBudget(input, reason = '') {
   const estimate = estimateAudioMemory(input);
-  if (!estimate.fits) throw fail('AUDIO_MEMORY_LIMIT', `离线音频预计需要 ${Math.ceil(estimate.estimatedBytes / 1048576)} MiB，超过 384 MiB 上限。${reason}请缩短合成、换用较短素材或预先导出 WAV；裁剪片段不会缩短整段素材的解码。`);
+  const stage = {decode: '整段素材解码', render: '离线混音', encode: 'WAV 编码'}[estimate.peakStage];
+  if (!estimate.fits) throw fail('AUDIO_MEMORY_LIMIT', `离线音频在${stage}阶段预计需要 ${Math.ceil(estimate.estimatedBytes / 1048576)} MiB，超过 384 MiB 上限。${reason}请缩短合成、换用较短素材或预先导出 WAV；裁剪片段不会缩短整段素材的解码。`);
   return estimate;
 }
 
@@ -193,18 +217,36 @@ function automate(param, events) {
   }
 }
 
+function releaseGraph(nodes, decoded, records) {
+  for (const node of nodes) {
+    try { node.disconnect(); } catch { /* Release the remaining nodes too. */ }
+    if ('buffer' in node) { try { node.buffer = null; } catch { /* The memory estimate retains the native PCM reserve. */ } }
+  }
+  nodes.length = 0; decoded.clear(); records.clear();
+}
+
 /** Explicit dependency injection keeps tests isolated; no browser API is
  * monkeypatched. The public wrapper below uses the genuine native constructors. */
-export function createOfflineAudioExporter({AudioContext, OfflineAudioContext, yieldControl = yieldToUI}) {
+export function createOfflineAudioExporter({AudioContext, OfflineAudioContext, yieldControl = yieldToUI, probeAudioMetadata = probeMp4Audio}) {
   return async function exportAudio(project, {assetStore, cancelled = () => false, progress = () => {}} = {}) {
     if (typeof cancelled !== 'function' || typeof progress !== 'function') throw new TypeError('Expected export callbacks');
     checkCancelled(cancelled);
     const plan = planOfflineAudio(project), records = new Map(), decoded = new Map(), nodes = [];
-    const memory = {frames: plan.frames, encodedBytes: 0, maxEncodedBytes: 0, sources: []};
+    const assetSizes = new Map(plan.assetSizes);
+    if (typeof assetStore?.retainedAssets === 'function') {
+      const retained = assetStore.retainedAssets();
+      if (!Array.isArray(retained)) throw new TypeError('Expected cached asset summaries');
+      for (const asset of retained) {
+        if (typeof asset?.id !== 'string') throw new TypeError('Invalid cached asset identity');
+        integer(asset.size, 0, Number.MAX_SAFE_INTEGER, 'cached asset bytes');
+        assetSizes.set(asset.id, Math.max(asset.size, assetSizes.get(asset.id) ?? 0));
+      }
+    }
+    const memory = {frames: plan.frames, encodedBytes: [...assetSizes.values()].reduce((n,size)=>n+size,0), maxEncodedBytes: 0, sources: []};
     requireBudget(memory);
     if (typeof OfflineAudioContext !== 'function' || (plan.clips.length && typeof AudioContext !== 'function')) throw fail('AUDIO_UNSUPPORTED', '此浏览器不支持离线音频导出');
     if (plan.clips.length && typeof assetStore?.get !== 'function') throw new TypeError('assetStore.get is required');
-    let decoder = null;
+    let decoder = null, offline = null, usedEncodedBytes = 0;
     try {
       progress(0, '检查离线音频与内存预算');
       for (const clip of plan.clips) {
@@ -219,28 +261,37 @@ export function createOfflineAudioExporter({AudioContext, OfflineAudioContext, y
         const blob = entry?.blob;
         if (!blob || !Number.isSafeInteger(blob.size) || blob.size < 1 || blob.size > MAX_ASSET_BYTES || typeof blob.arrayBuffer !== 'function' || typeof blob.slice !== 'function') throw fail('AUDIO_ASSET', '音频素材缺失或超过单文件 64 MiB 上限');
         if (!Number.isFinite(entry.meta?.duration) || Math.abs(entry.meta.duration - clip.mediaDuration) > .0001) throw fail('AUDIO_METADATA', '素材时长与片段描述不一致，请重新导入素材');
-        memory.encodedBytes += blob.size;
+        // Include all current-project encoded assets, even muted video Blobs.
+        // Never deduct a still-cached Blob when export releases its own reference.
+        memory.encodedBytes += Math.max(0, blob.size - (assetSizes.get(clip.assetId) ?? 0));
+        assetSizes.set(clip.assetId, Math.max(blob.size, assetSizes.get(clip.assetId) ?? 0));
         memory.maxEncodedBytes = Math.max(memory.maxEncodedBytes, blob.size);
-        if (memory.encodedBytes > MAX_TOTAL_ASSET_BYTES) throw fail('AUDIO_ASSET', '音频素材总量超过 128 MiB 上限');
+        usedEncodedBytes += blob.size;
+        if (usedEncodedBytes > MAX_TOTAL_ASSET_BYTES) throw fail('AUDIO_ASSET', '音频素材总量超过 128 MiB 上限');
         requireBudget(memory);
         const header = await blob.slice(0, 65536).arrayBuffer();
         checkCancelled(cancelled);
         const wav = inspectWavHeader(header, blob.size);
         if (wav && Math.abs(wav.duration - clip.mediaDuration) > DECODE_DURATION_TOLERANCE) throw fail('AUDIO_METADATA', 'WAV 时长与片段描述不一致，请重新导入素材');
-        records.set(clip.assetId, {blob, duration: clip.mediaDuration, uses: 1, channels: wav?.channels ?? MAX_SOURCE_CHANNELS, unknownChannels: !wav});
+        const mp4 = wav ? null : await probeAudioMetadata(blob);
+        checkCancelled(cancelled);
+        const channels = wav?.channels ?? mp4?.maxChannels ?? MAX_SOURCE_CHANNELS;
+        integer(channels, 1, MAX_SOURCE_CHANNELS, 'probed channel reservation');
+        records.set(clip.assetId, {blob, duration: clip.mediaDuration, uses: 1, channels, unknownChannels: !wav && !mp4,
+          probeLabel: wav ? 'PCM WAV 头部' : mp4 ? 'MP4 AAC-LC 配置' : '未知格式'});
       }
       let completed = 0;
       for (const [id, record] of records) {
         checkCancelled(cancelled);
         const reserveFrames = sampleAtOrAfter(record.duration + DECODE_DURATION_TOLERANCE);
-        requireBudget({...memory, pendingPcmBytes: reserveFrames * record.channels * 4}, record.unknownChannels ? '此素材的音频声道数未知，按 32 声道保守预留整段解码内存。' : 'WAV 按已知声道数预留整段解码内存。');
+        requireBudget({...memory, pendingPcmBytes: reserveFrames * record.channels * 4}, record.unknownChannels ? '此素材的音频声道数未知，按 32 声道保守预留整段解码内存。' : `${record.probeLabel}按 ${record.channels} 声道预留整段解码内存。`);
         if (!decoder) {
           decoder = new AudioContext({sampleRate: AUDIO_SAMPLE_RATE});
           if (decoder.sampleRate !== AUDIO_SAMPLE_RATE) throw fail('AUDIO_SAMPLE_RATE', '浏览器无法以 48 kHz 解码音频');
         }
         progress(.05 + .45 * completed / records.size, `解码音频 ${completed + 1} / ${records.size}（取消需等待当前解码完成）`);
         checkCancelled(cancelled);
-        const encoded = await record.blob.arrayBuffer();
+        let encoded = await record.blob.arrayBuffer();
         checkCancelled(cancelled);
         let buffer;
         try { buffer = await decoder.decodeAudioData(encoded); }
@@ -248,8 +299,10 @@ export function createOfflineAudioExporter({AudioContext, OfflineAudioContext, y
           checkCancelled(cancelled);
           throw fail('AUDIO_DECODE', '浏览器无法解码素材音轨，或视频没有音轨。请改用 WAV 音频；无声视频请将原声静音后重试。', error);
         }
+        finally { encoded = null; }
         checkCancelled(cancelled);
         if (buffer.sampleRate !== AUDIO_SAMPLE_RATE || !Number.isSafeInteger(buffer.length) || buffer.length < 1 || !Number.isInteger(buffer.numberOfChannels) || buffer.numberOfChannels < 1 || buffer.numberOfChannels > MAX_SOURCE_CHANNELS) throw fail('AUDIO_DECODE', '解码后的音频格式超出支持范围');
+        if (!record.unknownChannels && buffer.numberOfChannels > record.channels) throw fail('AUDIO_METADATA', '实际解码声道数超出文件头预算，已停止导出');
         if (Math.abs(buffer.length / AUDIO_SAMPLE_RATE - record.duration) > DECODE_DURATION_TOLERANCE) throw fail('AUDIO_METADATA', '解码音轨时长与素材描述不一致，请重新导入或提取 WAV 音轨');
         memory.sources.push({frames: buffer.length, channels: buffer.numberOfChannels, uses: record.uses});
         requireBudget(memory);
@@ -260,7 +313,7 @@ export function createOfflineAudioExporter({AudioContext, OfflineAudioContext, y
       if (decoder) { await decoder.close(); decoder = null; }
       checkCancelled(cancelled);
       requireBudget(memory);
-      const offline = new OfflineAudioContext(AUDIO_CHANNELS, plan.frames, AUDIO_SAMPLE_RATE);
+      offline = new OfflineAudioContext(AUDIO_CHANNELS, plan.frames, AUDIO_SAMPLE_RATE);
       for (const clip of plan.clips) {
         const buffer = decoded.get(clip.assetId), schedule = scheduleAudioClip(clip, {frames: plan.frames, sourceFrames: buffer.length});
         if (!schedule) continue;
@@ -277,8 +330,16 @@ export function createOfflineAudioExporter({AudioContext, OfflineAudioContext, y
       progress(.55, '离线混音中（取消需等待浏览器完成当前渲染）');
       checkCancelled(cancelled);
       const rendered = await offline.startRendering();
+      // Rendering is settled before dropping graph references. Do this BEFORE
+      // channel readback or WAV allocation, including if cancellation arrived.
+      // Keep every source PCM byte charged in encode: native GC is not provable.
+      releaseGraph(nodes, decoded, records);
+      offline = null;
       checkCancelled(cancelled);
       if (rendered.length !== plan.frames || rendered.numberOfChannels !== AUDIO_CHANNELS || rendered.sampleRate !== AUDIO_SAMPLE_RATE) throw fail('AUDIO_RENDER', '浏览器返回了意外的离线音频格式');
+      requireBudget(memory);
+      progress(.78, '混音完成，已解除源音频引用，准备写入 WAV');
+      checkCancelled(cancelled);
       const channels = [rendered.getChannelData(0), rendered.getChannelData(1)];
       const {buffer, view} = wavBuffer(wavLayout(plan.frames));
       for (let start = 0; start < plan.frames; start += CHUNK_FRAMES) {
@@ -294,11 +355,8 @@ export function createOfflineAudioExporter({AudioContext, OfflineAudioContext, y
       checkCancelled(cancelled);
       return blob;
     } finally {
-      for (const node of nodes) {
-        try { node.disconnect(); } catch { /* Release the remaining nodes too. */ }
-        if ('buffer' in node) { try { node.buffer = null; } catch { /* Native context owns any remaining reference. */ } }
-      }
-      nodes.length = 0; decoded.clear(); records.clear();
+      releaseGraph(nodes, decoded, records);
+      offline = null;
       if (decoder) { try { await decoder.close(); } catch { /* Preserve the original failure/cancellation. */ } }
     }
   };

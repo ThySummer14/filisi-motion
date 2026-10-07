@@ -28,5 +28,7 @@ export class AssetStore {
  if(!record?.blob)throw Error('工程的本地素材已丢失，请打开已下载的完整工程文件');const entry={meta:record.meta,blob:record.blob,url:URL.createObjectURL(record.blob),stored:true};this.cache.set(id,entry);return entry;}
  persisted(project){return (project.assets??[]).every(a=>this.cache.get(a.id)?.stored===true);}
  async ingest(project){for(const asset of project.assets??[]){if(asset.data){const comma=asset.data.indexOf(',');const binary=atob(asset.data.slice(comma+1));if(binary.length!==asset.size)throw Error('素材大小校验失败');const bytes=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);const blob=new Blob([bytes],{type:asset.mime});if(await hashBlob(blob)!==asset.id)throw Error('素材哈希校验失败，文件可能已损坏');const {data,...meta}=asset;await this.remember(meta,blob);delete asset.data;}else await this.get(asset.id);}return project;}
+ retainedAssets(){return [...this.cache].map(([id,entry])=>({id,size:entry.blob.size}));}
+ releaseUnused(project){const wanted=new Set((project.assets??[]).map(a=>a.id));for(const [id,entry]of this.cache){if(!wanted.has(id)&&entry.stored){URL.revokeObjectURL(entry.url);this.cache.delete(id);}}}
  async portable(project){const out=JSON.parse(JSON.stringify(project));for(const asset of out.assets){const entry=await this.get(asset.id);asset.data=await blobDataURL(entry.blob);}return out;}
 }
