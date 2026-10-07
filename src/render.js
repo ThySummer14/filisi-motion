@@ -1,5 +1,5 @@
-import {gainAt} from './media-core.js?v=0.3.1';
-import {evaluated} from './core.js?v=0.3.1';
+import {gainAt} from './media-core.js?v=0.4.0';
+import {evaluated} from './core.js?v=0.4.0';
 export const images = new Map();
 export async function loadImages(project) {
   await Promise.all(project.layers.filter(l=>l.type==='image').map(async l=>{
