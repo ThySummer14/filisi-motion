@@ -1,6 +1,6 @@
 // Original media scheduling. Browser decoders are asynchronous; no private source is fetched.
-import {isMediaLayer,activeAt,sourceTimeAt,audioEnvelope} from './media-core.js?v=0.4.1';
-import {mediaWorkingSet,mediaPlanKey} from './media-plan.js?v=0.4.1';
+import {isMediaLayer,activeAt,sourceTimeAt,audioEnvelope} from './media-core.js?v=0.4.1-build2';
+import {mediaWorkingSet,mediaPlanKey} from './media-plan.js?v=0.4.1-build2';
 const abort=()=>new DOMException('A newer media request replaced this one','AbortError');
 export const hasMedia=project=>project.layers.some(isMediaLayer);
 function loaded(element,signal){return new Promise((resolve,reject)=>{if(signal?.aborted)return reject(abort());if(element.readyState>=1)return resolve();let timer;

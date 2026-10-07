@@ -1,6 +1,6 @@
-import {probeMp4Audio} from './audio-probe.js?v=0.4.1';
+import {probeMp4Audio} from './audio-probe.js?v=0.4.1-build2';
 // Original MIT-licensed, dependency-free offline audio mix and PCM16 WAV writer.
-import {isMediaLayer, validateMediaLayer} from './media-core.js?v=0.4.1';
+import {isMediaLayer, validateMediaLayer} from './media-core.js?v=0.4.1-build2';
 
 export const AUDIO_SAMPLE_RATE = 48000;
 export const AUDIO_CHANNELS = 2;

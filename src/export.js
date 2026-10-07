@@ -1,6 +1,6 @@
-import {drawProject} from './render.js?v=0.4.1';
+import {drawProject} from './render.js?v=0.4.1-build2';
 import {GifEncoder} from './gif.js';
-import {hasMedia} from './media.js?v=0.4.1';
+import {hasMedia} from './media.js?v=0.4.1-build2';
 export const recorderType=()=>typeof MediaRecorder==='undefined'?null:['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'].find(t=>MediaRecorder.isTypeSupported(t));
 export async function exportStill(project,time,media){if(media)await media.seek(project,time);const off=document.createElement('canvas');off.width=project.width;off.height=project.height;drawProject(off.getContext('2d'),project,time,{media});return new Promise((resolve,reject)=>off.toBlob(blob=>blob?resolve(blob):reject(Error('PNG 导出失败')),'image/png'));}
 export async function exportGifFrames(project,{width,fps,media,cancelled,progress}){const height=Math.round(width*project.height/project.width),count=Math.ceil(project.duration*fps);if(count>600||count*width*height>80000000)throw Error('GIF 超过资源上限，请缩短合成、降低宽度或帧率');const off=document.createElement('canvas');off.width=width;off.height=height;const ctx=off.getContext('2d',{willReadFrequently:true}),encoder=new GifEncoder(width,height,fps);

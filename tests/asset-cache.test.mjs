@@ -7,3 +7,14 @@ test('project switch releases only persisted unused memory, preserving unsaved s
  assert.equal(resolveObjectURL(entries[1].url),undefined);assert.ok(resolveObjectURL(entries[0].url));assert.ok(resolveObjectURL(entries[2].url));
  for(const entry of entries)URL.revokeObjectURL(entry.url);
 });
+
+test('reimporting identical content keeps live decoder URL and still writes persistence metadata',async()=>{
+ const store=new AssetStore(),writes=[];
+ store.db=async()=>({transaction(){const tx={objectStore:()=>({put(value){writes.push(value);queueMicrotask(()=>tx.oncomplete());}})};return tx;}});
+ const blob=new Blob(['same immutable media']);const meta={id:'content-hash',name:'first.mp4'};
+ assert.equal(await store.remember(meta,blob),true);const first=store.cache.get(meta.id);
+ assert.equal(await store.remember({...meta,name:'portable-copy.mp4'},new Blob(['same immutable media'])),true);const second=store.cache.get(meta.id);
+ assert.equal(first.url,second.url);assert.equal(first.blob,second.blob);assert.ok(resolveObjectURL(first.url));
+ assert.equal(writes.length,2);assert.equal(writes[1].meta.name,'portable-copy.mp4');assert.equal(writes[1].blob,blob);
+ store.releaseUnused({assets:[]});assert.equal(resolveObjectURL(first.url),undefined);
+});

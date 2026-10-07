@@ -1,7 +1,7 @@
 // A timeline working set: visible clips now, plus the next start group.
 // A serial cut sequence shares no simultaneous pictures, so it needs only the
 // current and next decoder instead of one decoder for every cut in the movie.
-import {isMediaLayer,activeAt} from './media-core.js?v=0.4.1';
+import {isMediaLayer,activeAt} from './media-core.js?v=0.4.1-build2';
 export function mediaWorkingSet(project,time){
  if(!Number.isFinite(time))throw new TypeError('Media time must be finite');
  const layers=project.layers.filter(l=>isMediaLayer(l)&&l.visible!==false);
