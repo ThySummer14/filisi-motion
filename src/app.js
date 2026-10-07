@@ -1,11 +1,11 @@
-import {AssetStore,MAX_TOTAL_BYTES} from './assets.js?v=0.3.0';
-import {MediaRuntime,hasMedia} from './media.js?v=0.3.0';
-import {isMediaLayer,sourceTimeAt,trimClip,moveClip,splitClip} from './media-core.js?v=0.3.0';
-import {recorderType,exportStill,exportGifFrames,exportRealtime} from './export.js?v=0.3.0';
-import {createGraphEditor} from './graph.js?v=0.3.0';
-import {DEFAULT_CURVE} from './curve.js?v=0.3.0';
-import {PROPERTIES, EASINGS, clone, clamp, uid, makeLayer, blankProject, sampleProject, validateProject, setKey, valueAt, evaluated, History} from './core.js?v=0.3.0';
-import {drawProject,loadImages,hitTest,images} from './render.js?v=0.3.0';
+import {AssetStore,MAX_TOTAL_BYTES} from './assets.js?v=0.3.1';
+import {MediaRuntime,hasMedia} from './media.js?v=0.3.1';
+import {isMediaLayer,sourceTimeAt,trimClip,moveClip,splitClip,detachAudio} from './media-core.js?v=0.3.1';
+import {recorderType,exportStill,exportGifFrames,exportRealtime} from './export.js?v=0.3.1';
+import {createGraphEditor} from './graph.js?v=0.3.1';
+import {DEFAULT_CURVE} from './curve.js?v=0.3.1';
+import {PROPERTIES, EASINGS, clone, clamp, uid, makeLayer, blankProject, sampleProject, validateProject, setKey, valueAt, evaluated, History} from './core.js?v=0.3.1';
+import {drawProject,loadImages,hitTest,images} from './render.js?v=0.3.1';
 import {GifEncoder} from './gif.js';
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -151,6 +151,6 @@ function renderMediaProperties(l){const panel=$('#media-properties');if(!panel||
  $('#media-volume').onchange=e=>{const n=Number(e.target.value);if(!Number.isFinite(n)){renderInspector();return;}mutateLayer(l=>l.volume=clamp(n,0,2));};
  for(const [id,p]of[['media-fade-in','fadeIn'],['media-fade-out','fadeOut']])$('#'+id).onchange=e=>{const n=Number(e.target.value);if(!Number.isFinite(n)){renderInspector();return;}mutateLayer(l=>{l[p]=clamp(n,0,300);delete l.fadeOrigin;});};
  $('#media-mute').onclick=()=>mutateLayer(l=>l.muted=!l.muted);$('#media-split').onclick=splitSelectedClip;
- if($('#detach-audio'))$('#detach-audio').onclick=()=>{if(project.layers.filter(isMediaLayer).length>=32){toast('已达到媒体片段数量上限');return;}mutateLayer(l=>{const audio=clone(l);audio.id=uid();audio.type='audio';audio.name=l.name+' · 原声';audio.keys={};audio.muted=false;l.muted=true;project.layers.splice(project.layers.indexOf(l),0,audio);});};
+ if($('#detach-audio'))$('#detach-audio').onclick=()=>{if(project.layers.filter(isMediaLayer).length>=32){toast('已达到媒体片段数量上限');return;}mutateLayer(l=>{const {video,audio}=detachAudio(l,uid());Object.assign(l,video);project.layers.splice(project.layers.indexOf(l),0,audio);selected=audio.id;});};
 }
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&(playing||buffering)){stop();mediaStatus('已暂停：页面移到后台');}});

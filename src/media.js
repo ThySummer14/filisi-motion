@@ -1,5 +1,5 @@
 // Original media scheduling. Browser decoders are asynchronous; no private source is fetched.
-import {isMediaLayer,activeAt,sourceTimeAt,gainAt} from './media-core.js?v=0.3.0';
+import {isMediaLayer,activeAt,sourceTimeAt,audioEnvelope} from './media-core.js?v=0.3.1';
 const abort=()=>new DOMException('A newer media request replaced this one','AbortError');
 export const hasMedia=project=>project.layers.some(isMediaLayer);
 function loaded(element,signal){return new Promise((resolve,reject)=>{if(signal?.aborted)return reject(abort());if(element.readyState>=1)return resolve();let timer;
@@ -29,11 +29,12 @@ export class MediaRuntime {
   })();this.preparing.set(pendingKey,pending);try{await pending;}finally{this.preparing.delete(pendingKey);}
  }));}
  async seek(project,time){const epoch=++this.epoch;this.pauseElements();await this.prepare(project);if(epoch!==this.epoch||this.closed)throw abort();await Promise.all(project.layers.filter(isMediaLayer).map(layer=>seekElement(this.entries.get(layer.id),sourceTimeAt(layer,time))));if(epoch!==this.epoch||this.closed)throw abort();return true;}
- pauseElements(){for(const entry of this.entries.values()){entry.element.pause();if(entry.gain)entry.gain.gain.value=0;}}
+ pauseElements(){for(const entry of this.entries.values()){entry.element.pause();if(entry.gain){entry.gain.gain.cancelScheduledValues(0);entry.gain.gain.setValueAtTime(0,this.context.currentTime);}}}
+ scheduleAudio(project,time){for(const layer of project.layers.filter(isMediaLayer)){const gain=this.entries.get(layer.id)?.gain?.gain;if(!gain)continue;gain.cancelScheduledValues(0);gain.setValueAtTime(0,this.clockStart);for(const point of audioEnvelope(layer,time)){const when=this.clockStart+point.time-time;if(point.kind==='ramp')gain.linearRampToValueAtTime(point.value,when);else gain.setValueAtTime(point.value,when);}}}
  stop(){this.running=false;this.epoch++;this.startEpoch++;for(const entry of this.entries.values())entry.cancelSeek?.();this.pauseElements();}
- async start(project,time,{monitor=true}={}){const attempt=++this.startEpoch;await this.resumeAudio();if(attempt!==this.startEpoch)throw abort();await this.seek(project,time);if(attempt!==this.startEpoch)throw abort();this.monitor.gain.value=monitor?1:0;this.base=time;this.clockStart=this.context.currentTime;this.error=null;this.running=true;this.sync(project,time);return this.clockStart;}
+ async start(project,time,{monitor=true}={}){const attempt=++this.startEpoch;await this.resumeAudio();if(attempt!==this.startEpoch)throw abort();await this.seek(project,time);if(attempt!==this.startEpoch)throw abort();this.monitor.gain.value=monitor?1:0;this.base=time;this.clockStart=this.context.currentTime;this.error=null;this.running=true;this.scheduleAudio(project,time);this.sync(project,time);return this.clockStart;}
  currentTime(){return this.base+(this.context?this.context.currentTime-this.clockStart:0);}
- sync(project,time){for(const layer of project.layers.filter(isMediaLayer)){const entry=this.entries.get(layer.id);if(!entry)continue;const e=entry.element;const active=activeAt(layer,time),desired=sourceTimeAt(layer,time);if(entry.gain)entry.gain.gain.setTargetAtTime(gainAt(layer,time),this.context.currentTime,.004);
+ sync(project,time){for(const layer of project.layers.filter(isMediaLayer)){const entry=this.entries.get(layer.id);if(!entry)continue;const e=entry.element;const active=activeAt(layer,time),desired=sourceTimeAt(layer,time);
  if(!active||!this.running){if(!e.paused)e.pause();continue;}
  if(Math.abs(e.currentTime-desired)>.18&&!e.seeking){try{e.currentTime=Math.min(desired,Math.max(0,e.duration-.001));}catch(err){this.error=err;this.running=false;this.pauseElements();this.onError(err);}}
  if(e.paused&&!entry.starting){entry.starting=true;e.play().catch(err=>{if(err.name!=='AbortError'){this.error=Error('媒体播放失败，请再次点击播放：'+err.message);this.running=false;this.pauseElements();this.onError(this.error);}}).finally(()=>entry.starting=false);}

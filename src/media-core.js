@@ -110,3 +110,36 @@ export function splitClip(layer, time, newId) {
   left.fadeOrigin = preserveEnvelope(layer); right.fadeOrigin = preserveEnvelope(layer);
   return [validateMediaLayer(left),validateMediaLayer(right)];
 }
+
+/** Detach a source-synchronous audio clip without copying spatial animation.
+ * The original video is muted so the soundtrack is not doubled. */
+export function detachAudio(layer, newId) {
+  validateMediaLayer(layer);
+  if (layer.type !== 'video') throw new TypeError('Only video has a soundtrack to detach');
+  if (typeof newId !== 'string' || !newId.trim() || newId === layer.id) throw new TypeError('Audio requires a distinct id');
+  const video=copy(layer), audio=copy(layer);
+  video.muted=true; audio.id=newId; audio.type='audio'; audio.name=(layer.name ?? 'Video')+' · 原声';
+  audio.keys={}; audio.muted=false;
+  return {video:validateMediaLayer(video),audio:validateMediaLayer(audio)};
+}
+
+/** Gain automation on the audio clock, independent of video/RAF cadence.
+ * Ramps sample only fading regions; a hard zero is scheduled at the clip end.
+ * Overlapping in/out fades multiply, so those intervals use 24 subdivisions. */
+export function audioEnvelope(layer, fromTime=0) {
+  validateMediaLayer(layer);finite(fromTime,'fromTime');
+  const start=Math.max(fromTime,layer.start), end=layer.end;
+  if(start>=end||layer.muted||layer.visible===false)return [];
+  const origin=layer.fadeOrigin??{sourceIn:layer.sourceIn,duration:layer.end-layer.start};
+  const originStart=layer.start+origin.sourceIn-layer.sourceIn;
+  const inEnd=originStart+layer.fadeIn, outStart=originStart+origin.duration-layer.fadeOut;
+  const last=Math.max(start,end-Math.min(.0001,(end-start)/2));
+  const bounds=[start,...[inEnd,outStart].filter(t=>t>start&&t<last),last].sort((a,b)=>a-b);
+  const points=[{time:start,value:gainAt(layer,start),kind:'set'}];
+  for(let i=1;i<bounds.length;i++){
+    const a=bounds[i-1],b=bounds[i],middle=(a+b)/2;
+    const steps=layer.fadeIn>0&&layer.fadeOut>0&&middle<inEnd&&middle>outStart?24:1;
+    for(let j=1;j<=steps;j++){const time=a+(b-a)*j/steps;points.push({time,value:gainAt(layer,time),kind:'ramp'});}
+  }
+  points.push({time:end,value:0,kind:'set'});return points;
+}

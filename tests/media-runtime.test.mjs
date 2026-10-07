@@ -11,7 +11,7 @@ class FakeMedia extends EventTarget {
  removeAttribute(){this._src='';}
  load(){}
 }
-class FakeNode {constructor(){this.gain={value:0,setTargetAtTime(v){this.value=v;}};}connect(){}disconnect(){}}
+class FakeNode {constructor(){this.gain={value:0,events:[],cancelScheduledValues(t){this.events=this.events.filter(e=>e.time<t);},setValueAtTime(v,t){this.value=v;this.events.push({kind:'set',time:t,value:v});},linearRampToValueAtTime(v,t){this.events.push({kind:'ramp',time:t,value:v});}};}connect(){}disconnect(){}}
 class FakeAudioContext {constructor(){this.currentTime=0;this.state='running';this.destination=new FakeNode();}createGain(){return new FakeNode();}createMediaStreamDestination(){return {...new FakeNode(),stream:{getAudioTracks:()=>[]}};}createMediaElementSource(){return new FakeNode();}async resume(){}async close(){this.state='closed';}}
 const clip=(id='a',asset='source')=>({id,type:'video',assetId:asset,start:0,end:4,sourceIn:0,mediaDuration:4,volume:1,muted:false,fadeIn:0,fadeOut:0,visible:true,keys:{}});
 const project=layers=>({layers});
@@ -22,3 +22,11 @@ test('project switch during pending asset load does not resurrect stale decoders
 test('clip identity includes kind and source, not just layer id',async()=>{const {runtime,made}=setup();await runtime.prepare(project([clip()]));await runtime.prepare(project([{...clip(),type:'audio'}]));assert.equal(made.length,2);assert.equal(runtime.entries.get('a').element.kind,'audio');await runtime.close();});
 test('stop during asynchronous start prevents resumed playback',async()=>{const {runtime}=setup();let release;runtime.resumeAudio=()=>new Promise(resolve=>release=resolve);const start=runtime.start(project([clip()]),0).catch(e=>e.name);runtime.stop();release();assert.equal(await start,'AbortError');assert.equal(runtime.running,false);await runtime.close();});
 test('decoder play failure stops runtime and surfaces one persistent error',async()=>{const {runtime}=setup();const p=project([clip()]);await runtime.prepare(p);runtime.entries.get('a').element.failPlay=true;await runtime.start(p,0);await Promise.resolve();assert.equal(runtime.running,false);assert.match(runtime.error.message,/播放失败/);const calls=runtime.entries.get('a').element.playCalls;runtime.sync(p,1);assert.equal(runtime.entries.get('a').element.playCalls,calls);await runtime.close();});
+
+test('audio cut is pre-scheduled on audio clock before any later video frame',async()=>{
+ const {runtime}=setup();const l={...clip(),end:2};const p=project([l]);await runtime.start(p,0);
+ const gain=runtime.entries.get('a').gain.gain;
+ assert.deepEqual(gain.events.at(-1),{kind:'set',time:2,value:0});
+ const before=JSON.stringify(gain.events);runtime.sync(p,.5);assert.equal(JSON.stringify(gain.events),before);
+ runtime.stop();assert.deepEqual(gain.events,[{kind:'set',time:0,value:0}]);await runtime.close();
+});

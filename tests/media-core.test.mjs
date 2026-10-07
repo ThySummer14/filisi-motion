@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {makeLayer,setKey,valueAt} from '../src/core.js';
-import {isMediaLayer,validateMediaLayer,activeAt,sourceTimeAt,gainAt,trimClip,moveClip,splitClip} from '../src/media-core.js';
+import {isMediaLayer,validateMediaLayer,activeAt,sourceTimeAt,gainAt,trimClip,moveClip,splitClip,detachAudio,audioEnvelope} from '../src/media-core.js';
 const clip = (props={}) => ({...makeLayer('video',10),id:'a',assetId:'synthetic-video',start:2,end:8,sourceIn:1,mediaDuration:12,volume:1,muted:false,fadeIn:0,fadeOut:0,...props});
 const near = (a,b) => assert.ok(Math.abs(a-b)<1e-9,`${a} != ${b}`);
 test('media types, source seeking and exclusive active endpoint',()=>{
@@ -56,4 +56,22 @@ test('invalid numbers, field types, source bounds, key ordering and split ids ar
   const l=clip();for(const t of [NaN,Infinity,'3',null]){assert.throws(()=>sourceTimeAt(l,t));assert.throws(()=>trimClip(l,t,7));assert.throws(()=>moveClip(l,t,12));assert.throws(()=>splitClip(l,t,'b'));}
   for(const t of [2,8,1,9])assert.throws(()=>splitClip(l,t,'b'));
   for(const id of ['',null,'a'])assert.throws(()=>splitClip(l,4,id));assert.throws(()=>sourceTimeAt({},1));
+});
+
+test('detach audio preserves source/fades but not spatial keys, and mutes only video',()=>{
+ const l=trimClip(clip({fadeIn:3,fadeOut:2,volume:.6}),3,7);setKey(l,'scale',2,1);setKey(l,'scale',8,1.2);
+ const before=JSON.stringify(l),{video,audio}=detachAudio(l,'audio-copy');
+ assert.equal(JSON.stringify(l),before);assert.equal(video.muted,true);assert.equal(audio.muted,false);
+ assert.equal(audio.type,'audio');assert.deepEqual(audio.keys,{});assert.deepEqual(video.keys,l.keys);
+ for(let t=3;t<7;t+=.125){near(sourceTimeAt(audio,t),sourceTimeAt(l,t));near(gainAt(audio,t),gainAt(l,t));near(gainAt(video,t),0);}
+ audio.fadeOrigin.duration=99;assert.notEqual(audio.fadeOrigin.duration,video.fadeOrigin.duration);
+ assert.throws(()=>detachAudio(l,l.id));assert.throws(()=>detachAudio({...l,type:'audio'},'another'));
+});
+
+test('audio automation clips precisely and preserves split/trim fade envelopes',()=>{
+ const l=clip({fadeIn:4,fadeOut:4});const points=audioEnvelope(l,3);
+ assert.deepEqual(points[0],{time:3,value:gainAt(l,3),kind:'set'});assert.deepEqual(points.at(-1),{time:8,value:0,kind:'set'});
+ for(const p of points.slice(0,-1))near(p.value,gainAt(l,p.time));
+ assert.ok(points.length<=52);assert.deepEqual(audioEnvelope({...l,muted:true}),[]);assert.deepEqual(audioEnvelope(l,8),[]);
+ const short=trimClip(l,4,6);assert.equal(audioEnvelope(short)[0].value,gainAt(l,4));assert.equal(audioEnvelope(short).at(-1).time,6);
 });

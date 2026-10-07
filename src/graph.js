@@ -1,6 +1,6 @@
 // Original, DOM-isolated value graph. Mutations go through the host's history hooks.
-import {PROPERTIES, valueAt, clamp} from './core.js?v=0.3.0';
-import {DEFAULT_CURVE, graphBounds, moveGraphKey} from './curve.js?v=0.3.0';
+import {PROPERTIES, valueAt, clamp} from './core.js?v=0.3.1';
+import {DEFAULT_CURVE, graphBounds, moveGraphKey} from './curve.js?v=0.3.1';
 const names = {x:'位置 X',y:'位置 Y',scale:'缩放',rotation:'旋转',opacity:'不透明度',blur:'模糊'};
 const limits = {x:[-20000,20000],y:[-20000,20000],scale:[.01,20],rotation:[-36000,36000],opacity:[0,1],blur:[0,100]};
 const modes = {linear:'线性',easeIn:'缓入',easeOut:'缓出',easeInOut:'缓入缓出',hold:'保持',bezier:'自定义贝塞尔'};
