@@ -30,7 +30,7 @@
 
 | 格式 | 工作方式 | 限制 |
 | --- | --- | --- |
-| WebM | Canvas + MediaRecorder，按合成尺寸实时录制 | 浏览器必须支持 WebM；保持页面前台；繁忙时可能丢帧；无音轨 |
+| WebM | Canvas + MediaRecorder，按合成尺寸实时录制 | 浏览器必须支持 WebM；保持页面前台；繁忙时可能丢帧、时长有小幅误差；部分播放器需读完才显示时长；无音轨 |
 | GIF | 本项目原创 GIF89a 编码器，逐帧离线渲染 | 固定 RGB332 256 色；320 / 480 / 640 px 宽；10 / 12 / 15 fps；最多 600 帧、8000 万像素 |
 | PNG | 当前播放头处渲染 | 单帧，无选框 |
 
@@ -89,3 +89,4 @@ scripts/           零依赖本地服务与静态打包
 ## License
 
 [MIT](LICENSE)。研究参考 Motionity、Motion Canvas 与 Friction，具体许可、未复用的范围与说明见[参考记录](docs/ACKNOWLEDGMENTS.md)。
+
