@@ -1,4 +1,4 @@
-import {evaluated} from './core.js';
+import {evaluated} from './core.js?v=0.2.0';
 export const images = new Map();
 export async function loadImages(project) {
   await Promise.all(project.layers.filter(l=>l.type==='image').map(async l=>{
@@ -18,3 +18,4 @@ export function drawProject(ctx,project,time,{width=project.width,height=project
   }ctx.restore();
 }
 export function hitTest(project,time,x,y){for(const source of [...project.layers].reverse()){if(!source.visible||source.locked||time<source.start||time>=source.end)continue;const l=evaluated(source,time);const r=-l.rotation*Math.PI/180,dx=x-l.x,dy=y-l.y;const px=(dx*Math.cos(r)-dy*Math.sin(r))/l.scale,py=(dx*Math.sin(r)+dy*Math.cos(r))/l.scale;if(Math.abs(px)<=l.width/2+6&&Math.abs(py)<=l.height/2+6)return source.id;}return null;}
+

@@ -1,5 +1,6 @@
+import {bezierProgress, validateCurve, DEFAULT_CURVE} from './curve.js?v=0.2.0';
 // Original Filisi Motion project model and deterministic keyframe evaluation.
-export const VERSION = 1;
+export const VERSION = 2;
 export const PROPERTIES = ['x','y','scale','rotation','opacity','blur'];
 export const EASINGS = {linear:t=>t, easeIn:t=>t*t*t, easeOut:t=>1-(1-t)**3, easeInOut:t=>t<.5?4*t*t*t:1-(-2*t+2)**3/2, hold:()=>0};
 export const clone = value => JSON.parse(JSON.stringify(value));
@@ -9,10 +10,12 @@ export function makeLayer(type, duration=6) {
   return {id:uid(), type, name:({text:'文字',rect:'矩形',ellipse:'椭圆',image:'图片'})[type],x:640,y:360,width:type==='text'?640:220,height:type==='text'?100:220,scale:1,rotation:0,opacity:1,blur:0,fill:'#a8eb73',radius:24,text:'让想法动起来',fontSize:72,fontWeight:700,align:'center',start:0,end:duration,visible:true,locked:false,blend:'source-over',keys:{}};
 }
 export function blankProject() { return {format:'filisi-motion',version:VERSION,name:'未命名合成',width:1280,height:720,duration:6,fps:30,background:'#121922',layers:[]}; }
-export function setKey(layer, property, time, value, easing='easeInOut') {
+export function setKey(layer, property, time, value, easing='easeInOut', curve) {
   if (!PROPERTIES.includes(property) || !Number.isFinite(time) || !Number.isFinite(value)) throw Error('无效关键帧');
   const list=layer.keys[property]??=[]; const key=list.find(k=>Math.abs(k.time-time)<.0001);
-  if(key) Object.assign(key,{value,easing}); else list.push({time,value,easing});
+  const next={time,value,easing};
+  if(easing==='bezier')next.curve=validateCurve(curve??key?.curve??DEFAULT_CURVE);
+  if(key){delete key.curve;Object.assign(key,next);}else list.push(next);
   list.sort((a,b)=>a.time-b.time);
 }
 export function valueAt(layer, property, time) {
@@ -20,7 +23,7 @@ export function valueAt(layer, property, time) {
   if(time<=keys[0].time) return keys[0].value;
   for(let i=1;i<keys.length;i++) if(time<=keys[i].time) {
     const a=keys[i-1],b=keys[i]; if(time===b.time)return b.value; const t=(time-a.time)/(b.time-a.time);
-    return a.value+(b.value-a.value)*(EASINGS[a.easing]??EASINGS.linear)(t);
+    return a.value+(b.value-a.value)*(a.easing==='bezier'?bezierProgress(t,a.curve):(EASINGS[a.easing]??EASINGS.linear)(t));
   }
   return keys.at(-1).value;
 }
@@ -46,7 +49,7 @@ export function sampleProject() {
 }
 const finite=(n,min,max,label)=>{if(typeof n!=='number'||!Number.isFinite(n)||n<min||n>max) throw Error(`${label}超出范围`);return n;};
 export function validateProject(raw) {
-  if(!raw||raw.format!=='filisi-motion'||raw.version!==VERSION) throw Error('不是受支持的 Filisi Motion v1 工程');
+  if(!raw||raw.format!=='filisi-motion'||![1,VERSION].includes(raw.version)) throw Error('不是受支持的 Filisi Motion v1/v2 工程');
   const p=blankProject();p.name=String(raw.name??'未命名合成').slice(0,120);
   p.width=finite(raw.width,64,3840,'宽度');p.height=finite(raw.height,64,2160,'高度');
   p.duration=finite(raw.duration,.1,60,'时长');p.fps=finite(raw.fps,1,60,'帧率');
@@ -65,7 +68,7 @@ export function validateProject(raw) {
     l.blend=['source-over','multiply','screen','overlay','lighter'].includes(v.blend)?v.blend:'source-over';
     if(v.type==='image') {if(typeof v.src!=='string'||v.src.length>14000000||!/^data:image\/(png|jpeg|webp);base64,[a-z\d+/=\s]+$/i.test(v.src))throw Error('图片须为内嵌 PNG、JPEG 或 WebP');l.src=v.src;}
     for(const prop of PROPERTIES){const keys=v.keys?.[prop]??[];if(!Array.isArray(keys)||keys.length>1000)throw Error('关键帧数量过多');
-      for(const k of keys)setKey(l,prop,finite(k.time,0,p.duration,'关键帧时间'),finite(k.value,...ranges[prop],prop),Object.hasOwn(EASINGS,k.easing)?k.easing:'linear');}
+      for(const k of keys)setKey(l,prop,finite(k.time,0,p.duration,'关键帧时间'),finite(k.value,...ranges[prop],prop),k.easing==='bezier'?'bezier':Object.hasOwn(EASINGS,k.easing)?k.easing:'linear',k.easing==='bezier'?validateCurve(k.curve):undefined);}
     return l;
   });return p;
 }
@@ -76,3 +79,4 @@ export class History {
   redo(p){if(!this.future.length)return p;this.past.push(clone(p));return this.future.pop();}
   clear(){this.past=[];this.future=[];}
 }
+

@@ -13,3 +13,8 @@
 GIF 编码基于公开 GIF89a 格式的一般知识，当前 literal LZW 编码器为原创实现。UI 中使用系统字体与 Unicode 符号，未打包任何字体文件。系统字体本身的许可由运行设备负责。
 
 Filisi Motion 是独立开源项目，不隶属于 Adobe，也不包含 Adobe 的代码、商标素材或项目解析器。
+
+
+## 0.2 追加研究
+
+按用户提供的 storytold 账号，进一步阅读 EffectCraft、FilmCraft、PhotoCraft 和 VectorCraft，查看 EffectCraft 的实际工作台截图。源码许可、品牌例外、ArtCraft 主仓库的 fair-source 限制，以及实际借鉴范围详见 [STORYTOLD_RESEARCH.md](STORYTOLD_RESEARCH.md)。曲线模块与重排后的工作台为原创实现，没有将参考仓库的源码或资源打包进本项目。
