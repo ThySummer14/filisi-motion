@@ -5,3 +5,12 @@ dist/
 .env
 .env.*
 *.log
+
+.private/
+private/
+*.mp4
+*.webm
+*.mp3
+*.wav
+*.filisi
+!examples/*.filisi

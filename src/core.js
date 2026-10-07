@@ -1,15 +1,16 @@
-import {bezierProgress, validateCurve, DEFAULT_CURVE} from './curve.js?v=0.2.0';
+import {isMediaLayer,validateMediaLayer} from './media-core.js?v=0.3.0';
+import {bezierProgress, validateCurve, DEFAULT_CURVE} from './curve.js?v=0.3.0';
 // Original Filisi Motion project model and deterministic keyframe evaluation.
-export const VERSION = 2;
+export const VERSION = 3;
 export const PROPERTIES = ['x','y','scale','rotation','opacity','blur'];
 export const EASINGS = {linear:t=>t, easeIn:t=>t*t*t, easeOut:t=>1-(1-t)**3, easeInOut:t=>t<.5?4*t*t*t:1-(-2*t+2)**3/2, hold:()=>0};
 export const clone = value => JSON.parse(JSON.stringify(value));
 export const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 export const uid = () => globalThis.crypto?.randomUUID?.() ?? `layer-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 export function makeLayer(type, duration=6) {
-  return {id:uid(), type, name:({text:'文字',rect:'矩形',ellipse:'椭圆',image:'图片'})[type],x:640,y:360,width:type==='text'?640:220,height:type==='text'?100:220,scale:1,rotation:0,opacity:1,blur:0,fill:'#a8eb73',radius:24,text:'让想法动起来',fontSize:72,fontWeight:700,align:'center',start:0,end:duration,visible:true,locked:false,blend:'source-over',keys:{}};
+  return {id:uid(), type, name:({text:'文字',rect:'矩形',ellipse:'椭圆',image:'图片',video:'视频',audio:'音频'})[type],x:640,y:360,width:type==='text'?640:220,height:type==='text'?100:220,scale:1,rotation:0,opacity:1,blur:0,fill:'#a8eb73',radius:24,text:'让想法动起来',fontSize:72,fontWeight:700,align:'center',start:0,end:duration,visible:true,locked:false,blend:'source-over',keys:{}};
 }
-export function blankProject() { return {format:'filisi-motion',version:VERSION,name:'未命名合成',width:1280,height:720,duration:6,fps:30,background:'#121922',layers:[]}; }
+export function blankProject() { return {format:'filisi-motion',version:VERSION,name:'未命名合成',width:1280,height:720,duration:6,fps:30,background:'#121922',assets:[],layers:[]}; }
 export function setKey(layer, property, time, value, easing='easeInOut', curve) {
   if (!PROPERTIES.includes(property) || !Number.isFinite(time) || !Number.isFinite(value)) throw Error('无效关键帧');
   const list=layer.keys[property]??=[]; const key=list.find(k=>Math.abs(k.time-time)<.0001);
@@ -49,15 +50,25 @@ export function sampleProject() {
 }
 const finite=(n,min,max,label)=>{if(typeof n!=='number'||!Number.isFinite(n)||n<min||n>max) throw Error(`${label}超出范围`);return n;};
 export function validateProject(raw) {
-  if(!raw||raw.format!=='filisi-motion'||![1,VERSION].includes(raw.version)) throw Error('不是受支持的 Filisi Motion v1/v2 工程');
+  if(!raw||raw.format!=='filisi-motion'||![1,2,VERSION].includes(raw.version)) throw Error('不是受支持的 Filisi Motion v1/v2/v3 工程');
   const p=blankProject();p.name=String(raw.name??'未命名合成').slice(0,120);
   p.width=finite(raw.width,64,3840,'宽度');p.height=finite(raw.height,64,2160,'高度');
-  p.duration=finite(raw.duration,.1,60,'时长');p.fps=finite(raw.fps,1,60,'帧率');
+  p.duration=finite(raw.duration,.1,300,'时长');p.fps=finite(raw.fps,1,60,'帧率');
   if(!Number.isInteger(p.width)||!Number.isInteger(p.height)||!Number.isInteger(p.fps))throw Error('尺寸和帧率须为整数');
   if(!/^#[a-f\d]{6}$/i.test(raw.background))throw Error('无效背景色');p.background=raw.background;
+  const allowedMime=/^(video\/(mp4|webm|quicktime)|audio\/(mpeg|mp4|wav|x-wav|ogg|webm|flac))$/;
+  const inputAssets=raw.assets??[];if(!Array.isArray(inputAssets)||inputAssets.length>32)throw Error('最多支持 32 个媒体素材');
+  let assetBytes=0;const assetIds=new Set();p.assets=inputAssets.map(a=>{
+    if(!a||!/^asset-[a-f0-9]{64}$/.test(a.id)||assetIds.has(a.id))throw Error('无效或重复的素材 ID');assetIds.add(a.id);
+    if(!allowedMime.test(a.mime)||!['video','audio'].includes(a.type))throw Error('不支持的媒体素材类型');
+    const out={id:a.id,name:String(a.name??'媒体').slice(0,180),mime:a.mime,type:a.type,size:finite(a.size,1,64*1024*1024,'素材大小'),duration:finite(a.duration,.001,7200,'素材时长'),width:finite(a.width??0,0,7680,'素材宽度'),height:finite(a.height??0,0,4320,'素材高度')};
+    assetBytes+=out.size;if(assetBytes>128*1024*1024)throw Error('工程媒体总量超过 128 MB');
+    if(a.data!==undefined){if(typeof a.data!=='string'||a.data.length>90*1024*1024||!a.data.startsWith('data:'+a.mime+';base64,')||!/^[a-z\d+/=]+$/i.test(a.data.split(',')[1]??''))throw Error('无效内嵌媒体');out.data=a.data;}
+    return out;
+  });
   if(!Array.isArray(raw.layers)||raw.layers.length>100)throw Error('最多支持 100 个图层');
   const ids=new Set();p.layers=raw.layers.map(v=>{
-    if(!['rect','ellipse','text','image'].includes(v.type))throw Error('未知图层类型');
+    if(!['rect','ellipse','text','image','video','audio'].includes(v.type))throw Error('未知图层类型');
     const l=makeLayer(v.type,p.duration);l.id=typeof v.id==='string'?v.id:uid();if(ids.has(l.id))throw Error('图层 ID 重复');ids.add(l.id);
     for(const key of ['name','text'])l[key]=String(v[key]??l[key]).slice(0,key==='text'?4000:120);
     const ranges={x:[-20000,20000],y:[-20000,20000],width:[1,20000],height:[1,20000],scale:[.01,20],rotation:[-36000,36000],opacity:[0,1],blur:[0,100],radius:[0,2000],fontSize:[1,1000],fontWeight:[100,900],start:[0,p.duration],end:[0,p.duration]};
@@ -67,10 +78,19 @@ export function validateProject(raw) {
     l.visible=v.visible!==false;l.locked=v.locked===true;l.align=['left','center','right'].includes(v.align)?v.align:'center';
     l.blend=['source-over','multiply','screen','overlay','lighter'].includes(v.blend)?v.blend:'source-over';
     if(v.type==='image') {if(typeof v.src!=='string'||v.src.length>14000000||!/^data:image\/(png|jpeg|webp);base64,[a-z\d+/=\s]+$/i.test(v.src))throw Error('图片须为内嵌 PNG、JPEG 或 WebP');l.src=v.src;}
+    if(isMediaLayer(l)){
+      l.assetId=String(v.assetId??'');const a=p.assets.find(a=>a.id===l.assetId);if(!a)throw Error('图层引用了缺失的媒体素材');
+      if(l.type==='video'&&a.type!=='video')throw Error('视频图层必须引用视频素材');
+      l.sourceIn=finite(v.sourceIn??0,0,7200,'源入点');l.mediaDuration=finite(v.mediaDuration??a.duration,.001,7200,'媒体时长');
+      if(Math.abs(l.mediaDuration-a.duration)>.0001)throw Error('图层和素材时长不一致');
+      l.volume=finite(v.volume??1,0,2,'音量');l.muted=v.muted===true;l.fadeIn=finite(v.fadeIn??0,0,300,'淡入');l.fadeOut=finite(v.fadeOut??0,0,300,'淡出');
+      if(v.fadeOrigin!==undefined)l.fadeOrigin={sourceIn:finite(v.fadeOrigin?.sourceIn,0,7200,'渐变源入点'),duration:finite(v.fadeOrigin?.duration,.001,7200,'渐变范围')};
+      validateMediaLayer(l);
+    }
     for(const prop of PROPERTIES){const keys=v.keys?.[prop]??[];if(!Array.isArray(keys)||keys.length>1000)throw Error('关键帧数量过多');
-      for(const k of keys)setKey(l,prop,finite(k.time,0,p.duration,'关键帧时间'),finite(k.value,...ranges[prop],prop),k.easing==='bezier'?'bezier':Object.hasOwn(EASINGS,k.easing)?k.easing:'linear',k.easing==='bezier'?validateCurve(k.curve):undefined);}
+      for(const k of keys)setKey(l,prop,finite(k.time,isMediaLayer(l)?-7200:0,isMediaLayer(l)?7200:p.duration,'关键帧时间'),finite(k.value,...ranges[prop],prop),k.easing==='bezier'?'bezier':Object.hasOwn(EASINGS,k.easing)?k.easing:'linear',k.easing==='bezier'?validateCurve(k.curve):undefined);}
     return l;
-  });return p;
+  });if(p.layers.filter(isMediaLayer).length>32)throw Error('最多支持 32 个媒体片段');return p;
 }
 export class History {
   constructor(limit=60){this.limit=limit;this.past=[];this.future=[];}
