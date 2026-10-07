@@ -1,0 +1,336 @@
+{
+  "format": "filisi-motion",
+  "version": 2,
+  "name": "在轨 · 贝塞尔练习",
+  "width": 1280,
+  "height": 720,
+  "duration": 6,
+  "fps": 30,
+  "background": "#121922",
+  "layers": [
+    {
+      "id": "b4b1f8ce-1e98-47a4-bdcd-779fd1a344db",
+      "type": "ellipse",
+      "name": "轨道 / 主形",
+      "x": 953,
+      "y": 356,
+      "width": 414,
+      "height": 414,
+      "scale": 1,
+      "rotation": 0,
+      "opacity": 1,
+      "blur": 0,
+      "fill": "#a8eb73",
+      "radius": 24,
+      "text": "让想法动起来",
+      "fontSize": 72,
+      "fontWeight": 700,
+      "align": "center",
+      "start": 0,
+      "end": 6,
+      "visible": true,
+      "locked": false,
+      "blend": "source-over",
+      "keys": {
+        "scale": [
+          {
+            "time": 0,
+            "value": 0.15,
+            "easing": "easeOut"
+          },
+          {
+            "time": 1.6,
+            "value": 1,
+            "easing": "easeInOut"
+          },
+          {
+            "time": 4.5,
+            "value": 1,
+            "easing": "easeInOut"
+          },
+          {
+            "time": 6,
+            "value": 0.7,
+            "easing": "easeInOut"
+          }
+        ],
+        "rotation": [
+          {
+            "time": 0,
+            "value": -40,
+            "easing": "linear"
+          },
+          {
+            "time": 6,
+            "value": 60,
+            "easing": "easeInOut"
+          }
+        ]
+      }
+    },
+    {
+      "id": "d757e45f-4686-49d9-b523-e517ad1b36e6",
+      "type": "ellipse",
+      "name": "轨道 / 内环",
+      "x": 953,
+      "y": 356,
+      "width": 252,
+      "height": 252,
+      "scale": 1,
+      "rotation": 0,
+      "opacity": 1,
+      "blur": 0,
+      "fill": "#121922",
+      "radius": 24,
+      "text": "让想法动起来",
+      "fontSize": 72,
+      "fontWeight": 700,
+      "align": "center",
+      "start": 0,
+      "end": 6,
+      "visible": true,
+      "locked": false,
+      "blend": "source-over",
+      "keys": {
+        "scale": [
+          {
+            "time": 0,
+            "value": 0.01,
+            "easing": "easeOut"
+          },
+          {
+            "time": 1.8,
+            "value": 1,
+            "easing": "easeInOut"
+          },
+          {
+            "time": 4.5,
+            "value": 1,
+            "easing": "easeInOut"
+          },
+          {
+            "time": 6,
+            "value": 0.7,
+            "easing": "easeInOut"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c916f345-812f-4f78-bb43-31597d7ea262",
+      "type": "rect",
+      "name": "穿过轨道",
+      "x": 950,
+      "y": 356,
+      "width": 520,
+      "height": 34,
+      "scale": 1,
+      "rotation": -38,
+      "opacity": 1,
+      "blur": 0,
+      "fill": "#f3f6ec",
+      "radius": 17,
+      "text": "让想法动起来",
+      "fontSize": 72,
+      "fontWeight": 700,
+      "align": "center",
+      "start": 0,
+      "end": 6,
+      "visible": true,
+      "locked": false,
+      "blend": "source-over",
+      "keys": {
+        "x": [
+          {
+            "time": 0,
+            "value": 1430,
+            "easing": "easeOut"
+          },
+          {
+            "time": 1.8,
+            "value": 950,
+            "easing": "easeInOut"
+          }
+        ],
+        "rotation": [
+          {
+            "time": 0,
+            "value": -70,
+            "easing": "easeInOut"
+          },
+          {
+            "time": 6,
+            "value": -22,
+            "easing": "easeInOut"
+          }
+        ]
+      }
+    },
+    {
+      "id": "e9e62427-3d74-4e5d-903f-724a1996b788",
+      "type": "text",
+      "name": "标题 · 让想法动起来",
+      "x": 370,
+      "y": 304,
+      "width": 640,
+      "height": 260,
+      "scale": 1,
+      "rotation": 0,
+      "opacity": 1,
+      "blur": 0,
+      "fill": "#f2f5ec",
+      "radius": 24,
+      "text": "让想法\n动起来。",
+      "fontSize": 98,
+      "fontWeight": 700,
+      "align": "left",
+      "start": 0,
+      "end": 6,
+      "visible": true,
+      "locked": false,
+      "blend": "source-over",
+      "keys": {
+        "y": [
+          {
+            "time": 0,
+            "value": 370,
+            "easing": "bezier",
+            "curve": [
+              0.9,
+              0.563,
+              0.67,
+              1
+            ]
+          },
+          {
+            "time": 2,
+            "value": 328.4294769503546,
+            "easing": "easeInOut"
+          }
+        ],
+        "opacity": [
+          {
+            "time": 0,
+            "value": 0,
+            "easing": "easeOut"
+          },
+          {
+            "time": 0.9,
+            "value": 1,
+            "easing": "easeInOut"
+          }
+        ]
+      }
+    },
+    {
+      "id": "4626e278-c01e-4cb1-b3fd-405c855188b4",
+      "type": "text",
+      "name": "副标题",
+      "x": 360,
+      "y": 517,
+      "width": 620,
+      "height": 40,
+      "scale": 1,
+      "rotation": 0,
+      "opacity": 1,
+      "blur": 0,
+      "fill": "#9ca8ad",
+      "radius": 24,
+      "text": "A SMALL IDEA. A WORLD IN MOTION.",
+      "fontSize": 22,
+      "fontWeight": 400,
+      "align": "left",
+      "start": 0.7,
+      "end": 6,
+      "visible": true,
+      "locked": false,
+      "blend": "source-over",
+      "keys": {}
+    },
+    {
+      "id": "4f10e3a5-0309-48d7-8e06-39b57d9e6ad5",
+      "type": "text",
+      "name": "片头标记",
+      "x": 355,
+      "y": 115,
+      "width": 610,
+      "height": 30,
+      "scale": 1,
+      "rotation": 0,
+      "opacity": 1,
+      "blur": 0,
+      "fill": "#a8eb73",
+      "radius": 24,
+      "text": "FILISI  /  MOTION STUDY 001",
+      "fontSize": 20,
+      "fontWeight": 600,
+      "align": "left",
+      "start": 0,
+      "end": 6,
+      "visible": true,
+      "locked": false,
+      "blend": "source-over",
+      "keys": {}
+    },
+    {
+      "id": "718bf962-b9a6-4cfb-a5c9-2412d4483c36",
+      "type": "ellipse",
+      "name": "游走的点",
+      "x": 1100,
+      "y": 150,
+      "width": 28,
+      "height": 28,
+      "scale": 1,
+      "rotation": 0,
+      "opacity": 1,
+      "blur": 0,
+      "fill": "#fd9560",
+      "radius": 24,
+      "text": "让想法动起来",
+      "fontSize": 72,
+      "fontWeight": 700,
+      "align": "center",
+      "start": 0,
+      "end": 6,
+      "visible": true,
+      "locked": false,
+      "blend": "source-over",
+      "keys": {
+        "x": [
+          {
+            "time": 0,
+            "value": 760,
+            "easing": "easeInOut"
+          },
+          {
+            "time": 3,
+            "value": 1130,
+            "easing": "easeInOut"
+          },
+          {
+            "time": 6,
+            "value": 760,
+            "easing": "easeInOut"
+          }
+        ],
+        "y": [
+          {
+            "time": 0,
+            "value": 155,
+            "easing": "easeInOut"
+          },
+          {
+            "time": 3,
+            "value": 570,
+            "easing": "easeInOut"
+          },
+          {
+            "time": 6,
+            "value": 155,
+            "easing": "easeInOut"
+          }
+        ]
+      }
+    }
+  ]
+}

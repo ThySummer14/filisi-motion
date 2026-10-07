@@ -12,6 +12,8 @@
 
 ---
 
+![Filisi Motion 0.2 的真实工作台与贝塞尔曲线编辑器](docs/images/workspace-v020.jpg)
+
 ## 当前版本：0.2 预览版
 
 这是向专业动效工具迈出的第一步，**不是完整的 After Effects 替代品**，也不读取 `.aep`。所有图形、界面与示例均为本项目原创；与 Adobe 无隶属关系。
@@ -39,7 +41,7 @@
 
 ## 0.2 工作台
 
-参考 [storytold / EffectCraft](docs/STORYTOLD_RESEARCH.md) 的实际工作台层级，重新安排紧凑工具条、全高属性栏和时间线 / 曲线面板，保留 Filisi 原创品牌。新 v2 工程格式可读取原来的 v1 文件；v2 文件需 0.2 或更新版打开。
+参考 [storytold / EffectCraft](docs/STORYTOLD_RESEARCH.md) 的实际工作台层级，重新安排紧凑工具条、全高属性栏和时间线 / 曲线面板，保留 Filisi 原创品牌。新 v2 工程格式可读取原来的 v1 文件；v2 文件需 0.2 或更新版打开。可以下载[贝塞尔练习工程](examples/orbit-bezier.filisi)查看已保存的控制点。
 
 ## 本地运行
 
