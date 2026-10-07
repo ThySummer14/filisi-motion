@@ -74,7 +74,7 @@ Blob 不会因为模块清空记录而从预算中减去，素材仓库仍可能
 
 `createOfflineAudioExporter({AudioContext, OfflineAudioContext, yieldControl})` 用于显式注入测试构造器。生产入口 `exportOfflineAudio` 读取浏览器提供的原生构造器。测试没有替换任何全局浏览器 API。
 
-**本模块提交时只完成 Node 纯逻辑与模拟 API 测试；尚未进行真实浏览器 WAV、压缩音轨、多声道、取消交互或长时间资源压力验收。** 模拟渲染器验证调度与连线，不能代替浏览器解码 / DSP 测试。
+模块最初仅有 Node 模拟测试；现已补做桌面 Chrome 的短片、完整 AAC-LC 音轨及取消交互实测，数据见 [QA](QA.md)。多声道输入、其他浏览器与长时间资源压力仍未全面验证。模拟渲染器本身不能代替浏览器解码 / DSP 测试。
 
 API 依据：[W3C Web Audio 解码](https://www.w3.org/TR/webaudio/#dom-baseaudiocontext-decodeaudiodata)、[离线渲染](https://www.w3.org/TR/webaudio/#OfflineAudioContext)、[AudioBuffer 数据取得与副本](https://www.w3.org/TR/webaudio/#acquire-the-content)、[声道上下混](https://www.w3.org/TR/webaudio/#channel-up-mixing-and-down-mixing)、[动态节点生命周期](https://www.w3.org/TR/webaudio/#DynamicLifetime)。只参考标准的行为说明，没有借用第三方实现。
 
